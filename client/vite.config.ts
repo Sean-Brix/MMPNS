@@ -14,6 +14,11 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: false,
+      devOptions: {
+        // Enable SW in dev so desktop installability can be validated locally.
+        enabled: true,
+        type: 'module',
+      },
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
