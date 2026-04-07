@@ -37,6 +37,16 @@
     window.__mmpnsDeferredInstallPrompt = null;
   });
 
+  const removeBootLoader = () => {
+    const loader = document.getElementById('boot-portal-loader');
+    if (!loader) return;
+
+    loader.classList.add('boot-loader--hidden');
+    window.setTimeout(() => {
+      loader.remove();
+    }, 240);
+  };
+
   registerSW({ immediate: true });
 
   createRoot(document.getElementById("root")!).render(
@@ -44,4 +54,8 @@
       <App />
     </QueryClientProvider>,
   );
+
+  window.requestAnimationFrame(() => {
+    window.setTimeout(removeBootLoader, 120);
+  });
   

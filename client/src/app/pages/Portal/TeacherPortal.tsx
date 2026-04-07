@@ -828,13 +828,13 @@ export const TeacherPortal: React.FC = () => {
         <div className="relative z-10 w-full max-w-sm text-center">
           <div className="flex flex-col items-center gap-4">
             <img
-              src="/icons/icon-512-maskable.png?v=20260407"
+              src="/icons/icon-512-maskable.png?v=20260407g"
               alt="MMPNS logo"
               className="w-18 h-18 object-contain drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)]"
               loading="eager"
             />
             <div>
-              <p className="text-white font-serif text-[2rem] font-bold leading-none drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]">MMPNS</p>
+              <p className="text-white font-serif text-[1.35rem] font-bold leading-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]">Madre Maria Pia Notari School</p>
               <p className="text-white/85 font-sans text-[11px] uppercase tracking-[0.22em] font-semibold mt-2">Teacher Portal</p>
             </div>
           </div>
@@ -884,7 +884,7 @@ export const TeacherPortal: React.FC = () => {
           <div className="relative z-10 w-full pt-10 px-7 sm:px-8 flex items-center gap-3">
             <div className="p-0.5">
               <img
-                src="/icons/icon-512-maskable.png?v=20260407"
+                src="/icons/icon-512-maskable.png?v=20260407g"
                 alt="MMPNS logo"
                 className="w-11 h-11 object-contain drop-shadow-[0_5px_16px_rgba(0,0,0,0.5)]"
                 loading="eager"
@@ -897,27 +897,29 @@ export const TeacherPortal: React.FC = () => {
           </div>
 
           {/* Content Area */}
-          <div className="relative z-10 w-full h-full flex flex-col justify-end px-7 sm:px-8 pb-11 sm:pb-12">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={onboardingSlideIndex}
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -20, opacity: 0 }}
-                transition={{ duration: 0.4 }}
-                className="max-w-[350px]"
-              >
-                <h1 className="text-white font-serif text-[2.25rem] md:text-5xl font-bold leading-[1.16] mb-4 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
-                  {activeOnboardingSlide.title}
-                </h1>
-                <p className="text-white/92 font-sans text-[1.02rem] max-w-[340px] leading-7 mb-11 drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
-                  {activeOnboardingSlide.description}
-                </p>
-              </motion.div>
-            </AnimatePresence>
+          <div className="relative z-10 w-full flex-1 flex flex-col px-7 sm:px-8 pb-11 sm:pb-12">
+            <div className="flex-1 flex items-center">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={onboardingSlideIndex}
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -20, opacity: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="max-w-[350px]"
+                >
+                  <h1 className="text-white font-serif text-[2.25rem] md:text-5xl font-bold leading-[1.16] mb-4 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                    {activeOnboardingSlide.title}
+                  </h1>
+                  <p className="text-white/92 font-sans text-[1.02rem] max-w-[340px] leading-7 drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
+                    {activeOnboardingSlide.description}
+                  </p>
+                </motion.div>
+              </AnimatePresence>
+            </div>
 
             {/* Controls */}
-            <div className="flex items-center justify-between gap-5 mt-auto">
+            <div className="flex items-center justify-between gap-5">
               <div className="flex items-center gap-2">
                 {MOBILE_ONBOARDING_SLIDES.map((slide, index) => (
                   <button
