@@ -34,11 +34,34 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+declare global {
+  interface Window {
+    __mmpnsDeferredInstallPrompt?: BeforeInstallPromptEvent | null;
+  }
+}
+
 const TEACHER_PORTAL_ONBOARDING_KEY = 'mmpns_teacher_portal_onboarding_seen_v1';
+const APP_OPENING_LOADING_MS = 1500;
 
 const isStandaloneDisplayMode = () => {
   const iosStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-  return window.matchMedia('(display-mode: standalone)').matches || iosStandalone;
+  const inTwa = document.referrer.startsWith('android-app://');
+  const inStandaloneMode =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: window-controls-overlay)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches ||
+    window.matchMedia('(display-mode: minimal-ui)').matches;
+
+  if (iosStandalone || inTwa || inStandaloneMode) {
+    return true;
+  }
+
+  const browserMode = window.matchMedia('(display-mode: browser)');
+  if (browserMode.media !== 'not all' && !browserMode.matches) {
+    return true;
+  }
+
+  return false;
 };
 
 /* ═══════════���══════════════════════════════════
@@ -259,9 +282,13 @@ export const TeacherPortal: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isBootLoading, setIsBootLoading] = useState(true);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isPortalLoading, setIsPortalLoading] = useState(false);
   const [error, setError] = useState('');
   const [onboardingSlideIndex, setOnboardingSlideIndex] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isInstalledAppContext, setIsInstalledAppContext] = useState(isStandaloneDisplayMode());
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installHint, setInstallHint] = useState('');
   const [teacherInfo, setTeacherInfo] = useState<{ displayName: string; initials: string; department: string; position: string } | null>(null);
@@ -305,11 +332,14 @@ export const TeacherPortal: React.FC = () => {
 
   // ── Init ──
   useEffect(() => {
+    let isCancelled = false;
+
     initializeDatabase();
     // Force re-init credentials to pick up new accounts (e.g. principal)
     localStorage.removeItem('mmpns_db_credentials');
     initializeDatabase();
     setHomeImageEditModeEnabled(localStorage.getItem(HOME_IMAGE_EDIT_MODE_KEY) === 'true');
+
     const session = getTeacherSession();
     if (session) {
       if (session.position === 'Admin') {
@@ -319,31 +349,74 @@ export const TeacherPortal: React.FC = () => {
 
       setIsAuthenticated(true);
       setTeacherInfo({ displayName: session.displayName, initials: session.initials, department: session.department, position: session.position || '' });
+      setIsPortalLoading(true);
+      window.setTimeout(() => {
+        if (isCancelled) {
+          return;
+        }
+        setIsPortalLoading(false);
+        setIsBootLoading(false);
+      }, APP_OPENING_LOADING_MS);
       return;
     }
 
     const hasSeenOnboarding = localStorage.getItem(TEACHER_PORTAL_ONBOARDING_KEY) === 'true';
     setShowOnboarding(isStandaloneDisplayMode() && !hasSeenOnboarding);
+
+    window.setTimeout(() => {
+      if (isCancelled) {
+        return;
+      }
+      setIsBootLoading(false);
+    }, APP_OPENING_LOADING_MS);
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {
+    if (window.__mmpnsDeferredInstallPrompt) {
+      setDeferredInstallPrompt(window.__mmpnsDeferredInstallPrompt);
+    }
+
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
-      setDeferredInstallPrompt(event as BeforeInstallPromptEvent);
+      const installPromptEvent = event as BeforeInstallPromptEvent;
+      window.__mmpnsDeferredInstallPrompt = installPromptEvent;
+      setDeferredInstallPrompt(installPromptEvent);
       setInstallHint('');
     };
 
     const handleAppInstalled = () => {
+      setIsInstalledAppContext(true);
+      window.__mmpnsDeferredInstallPrompt = null;
       setDeferredInstallPrompt(null);
       setInstallHint('App installed. You can now open it from your home screen or app list.');
     };
 
+    const mediaQueries = [
+      window.matchMedia('(display-mode: standalone)'),
+      window.matchMedia('(display-mode: window-controls-overlay)'),
+      window.matchMedia('(display-mode: fullscreen)'),
+      window.matchMedia('(display-mode: minimal-ui)'),
+      window.matchMedia('(display-mode: browser)'),
+    ];
+
+    const handleDisplayModeChange = () => {
+      setIsInstalledAppContext(isStandaloneDisplayMode());
+    };
+
+    handleDisplayModeChange();
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
     window.addEventListener('appinstalled', handleAppInstalled);
+    mediaQueries.forEach((query) => query.addEventListener('change', handleDisplayModeChange));
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      mediaQueries.forEach((query) => query.removeEventListener('change', handleDisplayModeChange));
     };
   }, []);
 
@@ -363,20 +436,6 @@ export const TeacherPortal: React.FC = () => {
       document.body.style.overflow = previousBodyOverflow;
     };
   }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (isAuthenticated || !showOnboarding) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setOnboardingSlideIndex((current) => (current + 1) % MOBILE_ONBOARDING_SLIDES.length);
-    }, 4500);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [isAuthenticated, showOnboarding]);
 
   const completeOnboarding = () => {
     localStorage.setItem(TEACHER_PORTAL_ONBOARDING_KEY, 'true');
@@ -421,10 +480,13 @@ export const TeacherPortal: React.FC = () => {
   };
 
   const handleInstallApp = async () => {
-    if (deferredInstallPrompt) {
+    const installPromptEvent = deferredInstallPrompt || window.__mmpnsDeferredInstallPrompt || null;
+
+    if (installPromptEvent) {
       setInstallHint('');
-      await deferredInstallPrompt.prompt();
-      const choice = await deferredInstallPrompt.userChoice;
+      await installPromptEvent.prompt();
+      const choice = await installPromptEvent.userChoice;
+      window.__mmpnsDeferredInstallPrompt = null;
       setDeferredInstallPrompt(null);
 
       if (choice.outcome === 'accepted') {
@@ -436,7 +498,7 @@ export const TeacherPortal: React.FC = () => {
       return;
     }
 
-    setInstallHint('Install is not available right now. Open browser menu and select Install App or Add to Home Screen.');
+    setInstallHint('Install prompt is not ready yet. Refresh once, then tap Download App again. If still unavailable, use browser menu: Install App / Add to Home Screen.');
   };
 
   const teacherUsername = useMemo(() => {
@@ -489,22 +551,38 @@ export const TeacherPortal: React.FC = () => {
   const currentQuarter = QUARTERS.find(q => q.id === selectedQuarter);
 
   // ── Auth handlers ──
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isSigningIn) {
+      return;
+    }
+
+    setIsSigningIn(true);
+    setError('');
+
+    await new Promise((resolve) => window.setTimeout(resolve, 650));
+
     const result = authenticateTeacher(username, password);
     if (result.success && result.teacher) {
       saveTeacherSession(result.teacher);
 
       if (result.teacher.position === 'Admin') {
+        setIsSigningIn(false);
         window.location.assign('/admin');
         return;
       }
 
+      setIsPortalLoading(true);
       setIsAuthenticated(true);
       setTeacherInfo({ displayName: result.teacher.displayName, initials: result.teacher.initials, department: result.teacher.department, position: result.teacher.position });
-      setError('');
+      window.setTimeout(() => {
+        setIsPortalLoading(false);
+      }, 700);
+      setIsSigningIn(false);
     } else {
       setError(result.error || 'Invalid credentials.');
+      setIsSigningIn(false);
     }
   };
   const handleLogout = () => {
@@ -730,6 +808,51 @@ export const TeacherPortal: React.FC = () => {
   ] : [{ id: 'settings', label: 'Quarter Settings', icon: Settings }];
   const isInMoreMenu = moreMenuItems.some(item => item.id === activeSection);
 
+  if (isBootLoading || isSigningIn || (isAuthenticated && isPortalLoading)) {
+    const loadingTitle = isSigningIn
+      ? 'Signing In'
+      : isAuthenticated
+        ? 'Loading Teacher Portal'
+        : 'Preparing Portal';
+    const loadingSubtitle = isSigningIn
+      ? 'Verifying your account and permissions...'
+      : isAuthenticated
+        ? 'Setting up your dashboard and classes...'
+        : 'Syncing school data and getting things ready...';
+
+    return (
+      <div className="fixed inset-0 overflow-hidden bg-gradient-to-br from-[#124217] via-[#185C20] to-[#1e6a28] flex items-center justify-center px-6">
+        <div className="absolute top-[-15%] right-[-10%] w-[440px] h-[440px] rounded-full bg-[#EDCD1F]/12 blur-3xl" />
+        <div className="absolute bottom-[-18%] left-[-8%] w-[420px] h-[420px] rounded-full bg-white/[0.06] blur-3xl" />
+
+        <div className="relative z-10 w-full max-w-sm text-center">
+          <div className="flex flex-col items-center gap-4">
+            <img
+              src="/icons/icon-512-maskable.png?v=20260407"
+              alt="MMPNS logo"
+              className="w-18 h-18 object-contain drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)]"
+              loading="eager"
+            />
+            <div>
+              <p className="text-white font-serif text-[2rem] font-bold leading-none drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]">MMPNS</p>
+              <p className="text-white/85 font-sans text-[11px] uppercase tracking-[0.22em] font-semibold mt-2">Teacher Portal</p>
+            </div>
+          </div>
+
+          <div className="mt-9 bg-white/8 border border-white/15 rounded-2xl px-6 py-5 backdrop-blur-md">
+            <p className="text-[#EDCD1F] text-sm font-bold tracking-wide">{loadingTitle}</p>
+            <p className="text-white/85 text-xs leading-relaxed mt-2">{loadingSubtitle}</p>
+            <div className="mt-5 flex items-center justify-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#EDCD1F] animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-[#EDCD1F]/80 animate-pulse [animation-delay:120ms]" />
+              <span className="w-2 h-2 rounded-full bg-[#EDCD1F]/60 animate-pulse [animation-delay:240ms]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   /* ═══════════════════════════════════════════════════════
      LOGIN SCREEN
      ═══════════════════════════════════════════════════════ */
@@ -739,7 +862,7 @@ export const TeacherPortal: React.FC = () => {
     if (showOnboarding) {
       return (
         <div
-          className="fixed inset-0 bg-black overflow-hidden"
+          className="fixed inset-0 bg-black overflow-hidden flex flex-col"
           onTouchStart={handleOnboardingTouchStart}
           onTouchEnd={handleOnboardingTouchEnd}
         >
@@ -748,62 +871,83 @@ export const TeacherPortal: React.FC = () => {
               key={activeOnboardingSlide.image}
               src={activeOnboardingSlide.image}
               alt={activeOnboardingSlide.title}
-              initial={{ opacity: 0, scale: 1.06 }}
+              initial={{ opacity: 0, scale: 1.05 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.4, ease: 'easeOut' }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
               className="absolute inset-0 h-full w-full object-cover"
             />
           </AnimatePresence>
-          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-black/90" />
 
-          <div className="relative z-10 h-full flex flex-col justify-between px-6 pt-8 pb-10">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-white/90 border border-white/70 p-1.5">
-                <img
-                  src="/icons/icon-512.png?v=20260407"
-                  alt="MMPNS logo"
-                  className="h-full w-full object-contain"
-                  loading="eager"
-                  decoding="sync"
-                />
-              </div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/90">MMPNS Mobile</p>
+          {/* Top Header with Logo */}
+          <div className="relative z-10 w-full pt-10 px-7 sm:px-8 flex items-center gap-3">
+            <div className="p-0.5">
+              <img
+                src="/icons/icon-512-maskable.png?v=20260407"
+                alt="MMPNS logo"
+                className="w-11 h-11 object-contain drop-shadow-[0_5px_16px_rgba(0,0,0,0.5)]"
+                loading="eager"
+              />
             </div>
+            <div className="flex flex-col drop-shadow-md">
+              <span className="text-white font-serif text-[1.35rem] font-bold leading-none tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">MMPNS</span>
+              <span className="text-white/90 text-[10px] font-sans uppercase tracking-[0.2em] font-bold mt-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">Mobile Portal</span>
+            </div>
+          </div>
 
-            <div>
-              <p className="text-white text-3xl md:text-4xl font-bold leading-tight max-w-xl">{activeOnboardingSlide.title}</p>
-              <p className="text-white/80 text-sm md:text-base mt-3 max-w-xl">{activeOnboardingSlide.description}</p>
+          {/* Content Area */}
+          <div className="relative z-10 w-full h-full flex flex-col justify-end px-7 sm:px-8 pb-11 sm:pb-12">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={onboardingSlideIndex}
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -20, opacity: 0 }}
+                transition={{ duration: 0.4 }}
+                className="max-w-[350px]"
+              >
+                <h1 className="text-white font-serif text-[2.25rem] md:text-5xl font-bold leading-[1.16] mb-4 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                  {activeOnboardingSlide.title}
+                </h1>
+                <p className="text-white/92 font-sans text-[1.02rem] max-w-[340px] leading-7 mb-11 drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
+                  {activeOnboardingSlide.description}
+                </p>
+              </motion.div>
+            </AnimatePresence>
 
-              <div className="mt-6 flex items-center gap-2">
+            {/* Controls */}
+            <div className="flex items-center justify-between gap-5 mt-auto">
+              <div className="flex items-center gap-2">
                 {MOBILE_ONBOARDING_SLIDES.map((slide, index) => (
                   <button
                     key={slide.title}
                     type="button"
                     onClick={() => setOnboardingSlideIndex(index)}
-                    className={`h-1.5 rounded-full transition-all ${index === onboardingSlideIndex ? 'w-7 bg-white' : 'w-2 bg-white/40'}`}
-                    aria-label={`Show onboarding slide ${index + 1}`}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      index === onboardingSlideIndex ? 'w-8 bg-[#EDCD1F]' : 'w-2 bg-white/30 hover:bg-white/50'
+                    }`}
+                    aria-label={`Show slide ${index + 1}`}
                   />
                 ))}
               </div>
 
-              <div className="mt-7 flex items-center gap-2.5">
+              <div className="flex items-center gap-3">
                 {onboardingSlideIndex > 0 && (
                   <button
                     type="button"
                     onClick={goToPreviousOnboardingSlide}
-                    className="h-11 px-5 rounded-xl border border-white/35 text-white text-sm font-semibold hover:bg-white/10 transition-colors"
+                    className="w-12 h-12 flex items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-white/20 transition-all font-sans"
                   >
-                    Back
+                    <ChevronRight size={20} className="rotate-180" />
                   </button>
                 )}
-
                 <button
                   type="button"
                   onClick={goToNextOnboardingSlide}
-                  className="h-11 px-6 rounded-xl bg-white text-[#185C20] text-sm font-bold hover:bg-white/90 transition-colors"
+                  className="px-6 h-12 flex items-center justify-center rounded-full bg-[#EDCD1F] text-[#185C20] font-sans font-bold tracking-wide hover:bg-[#f0d84f] transition-all shadow-[0_0_20px_rgba(237,205,31,0.3)]"
                 >
-                  {onboardingSlideIndex === MOBILE_ONBOARDING_SLIDES.length - 1 ? 'Proceed to Login' : 'Next'}
+                  {onboardingSlideIndex === MOBILE_ONBOARDING_SLIDES.length - 1 ? 'Get Started' : 'Next'}
                 </button>
               </div>
             </div>
@@ -871,15 +1015,24 @@ export const TeacherPortal: React.FC = () => {
                   Sign In
                 </button>
 
-                {!isStandaloneDisplayMode() && (
-                  <button
-                    type="button"
-                    onClick={handleInstallApp}
-                    className="w-full h-11 border border-[#185C20]/20 text-[#185C20] rounded-xl font-bold text-sm hover:bg-[#185C20]/5 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Download size={15} />
-                    Download App
-                  </button>
+                {!isInstalledAppContext && (
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => window.location.href = '/'}
+                      className="w-full h-11 border border-gray-200 text-gray-500 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all flex items-center justify-center"
+                    >
+                      Back to Site
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleInstallApp}
+                      className="w-full h-11 border border-[#185C20]/20 text-[#185C20] rounded-xl font-bold text-sm hover:bg-[#185C20]/5 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Download size={15} />
+                      Download App
+                    </button>
+                  </div>
                 )}
               </form>
 
