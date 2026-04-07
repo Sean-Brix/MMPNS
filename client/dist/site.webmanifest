@@ -3,7 +3,7 @@
   "short_name": "MMPNS",
   "description": "Value-centered Catholic education in Paranaque City from Kindergarten to Junior High School.",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/teacher-portal",
   "scope": "/",
   "display": "standalone",
   "background_color": "#FAF9F6",
@@ -33,18 +33,6 @@
       "name": "Teacher Portal",
       "short_name": "Teacher Login",
       "url": "/teacher-portal",
-      "icons": [
-        {
-          "src": "/icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
-    },
-    {
-      "name": "School Website",
-      "short_name": "Home",
-      "url": "/",
       "icons": [
         {
           "src": "/icons/icon-192.png",

@@ -2,14 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Users, LogOut, Lock, GraduationCap, Eye, EyeOff,
-  Bell, Home, MoreHorizontal, Plus, Trash2, Download, ChevronRight,
+  Bell, MoreHorizontal, Plus, Trash2, Download, ChevronRight,
   BarChart3, UserPlus, CheckCircle2, AlertTriangle, TrendingUp,
   Calculator, FileSpreadsheet, Settings, ClipboardList, ArrowUpDown,
   Search, X, ChevronDown, Layers, Award, LayoutGrid, Sparkles,
   Pencil, PencilOff, Check, SquareCheck, Square, MinusSquare,
-  Shield, School, Calendar, UserCheck, Star, Target, Trophy, Clock, RefreshCw, ArrowLeft, ImagePlus
+  Shield, School, Calendar, UserCheck, Star, Target, Trophy, Clock, RefreshCw, ImagePlus
 } from 'lucide-react';
-import { useAppNavigate } from '../../hooks/useAppNavigate';
 import {
   authenticateTeacher,
   saveTeacherSession,
@@ -222,8 +221,6 @@ const gradePill = (g: number) =>
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════ */
 export const TeacherPortal: React.FC = () => {
-  const goTo = useAppNavigate();
-
   // ── Auth state ──
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
@@ -591,11 +588,6 @@ export const TeacherPortal: React.FC = () => {
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4, ease: 'easeOut' }}
           className="relative w-full max-w-[420px]">
-
-          {/* Back button */}
-          <button onClick={() => goTo('home')} className="absolute -top-12 left-0 flex items-center gap-2 text-white/80 hover:text-white transition-colors text-sm font-medium">
-            <ArrowLeft size={16} /> Back to Website
-          </button>
 
           {/* Card */}
           <div className="bg-white rounded-[28px] shadow-2xl shadow-black/30 overflow-hidden">
@@ -2492,10 +2484,6 @@ export const TeacherPortal: React.FC = () => {
                   );
                 })}
                 <div className="border-t border-gray-100 mt-2 pt-2 space-y-0.5">
-                  <button onClick={() => { setMoreMenuOpen(false); goTo('home'); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-500 hover:bg-gray-50 transition-all">
-                    <Home size={18} /><span className="text-sm font-semibold">Back to Site</span>
-                  </button>
                   <button onClick={() => { setMoreMenuOpen(false); handleLogout(); }}
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-all">
                     <LogOut size={18} /><span className="text-sm font-semibold">Sign Out</span>
@@ -2550,10 +2538,6 @@ export const TeacherPortal: React.FC = () => {
               <p className="text-[10px] text-gray-400">{isPrincipal ? 'School Principal' : isAdminRole ? 'Portal Administrator' : `${teacherInfo?.department} Dept.`}</p>
             </div>
           </div>
-          <button onClick={() => goTo('home')}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-all cursor-pointer">
-            <Home size={16} className="flex-shrink-0" /><span className="text-[12px] font-semibold">Back to Site</span>
-          </button>
           <button onClick={handleLogout}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-500 transition-all cursor-pointer">
             <LogOut size={16} className="flex-shrink-0" /><span className="text-[12px] font-semibold">Sign Out</span>

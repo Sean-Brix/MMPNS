@@ -10,16 +10,9 @@ const isStandaloneDisplayMode = () => {
   return window.matchMedia('(display-mode: standalone)').matches || iosStandalone;
 };
 
-const isMobileDevice = () => {
-  const userAgent = window.navigator.userAgent.toLowerCase();
-  const mobileUA = /android|iphone|ipad|ipod|mobile/i.test(userAgent);
-  const coarsePointerMobile = window.matchMedia('(max-width: 900px) and (pointer: coarse)').matches;
-  return mobileUA || coarsePointerMobile;
-};
-
 export default function App() {
   useEffect(() => {
-    if (!isStandaloneDisplayMode() || !isMobileDevice()) {
+    if (!isStandaloneDisplayMode()) {
       return;
     }
 
@@ -29,7 +22,7 @@ export default function App() {
       }
     };
 
-    // Always start installed mobile users from the teacher login flow.
+    // Always start installed app users from the teacher login flow.
     localStorage.removeItem('teacherAuth');
 
     const originalPushState = window.history.pushState.bind(window.history);
