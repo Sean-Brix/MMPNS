@@ -1,5 +1,5 @@
-import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getDownloadURL, getStorage, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
+import { getFirebaseStorageClient, isFirebaseCoreConfigured } from './firebaseClient';
 
 import {
   HOME_SLOT_SITE_IMAGE_KEY,
@@ -11,7 +11,6 @@ import {
 } from './siteDefaultImages';
 
 const CLOUD_DEFAULT_IMAGE_CACHE_KEY = 'mmpns_cloud_default_image_urls_v1';
-const DEFAULT_FIREBASE_PROJECT_ID = 'mmpns-9bdde';
 
 export type SiteDefaultCloudUrlMap = Partial<Record<SiteDefaultImageKey, string>>;
 export type HomeDefaultImageMap = Record<keyof HomeSlotSiteImageMap, string>;
@@ -21,23 +20,8 @@ let syncInFlight: Promise<SiteDefaultCloudUrlMap> | null = null;
 
 const hasWindow = () => typeof window !== 'undefined';
 
-const getFirebaseConfig = () => {
-  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_PROJECT_ID;
-
-  return {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
-    projectId,
-    storageBucket:
-      import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  };
-};
-
 export const isCloudImageStorageConfigured = () => {
-  const config = getFirebaseConfig();
-  return Boolean(config.apiKey && config.projectId);
+  return isFirebaseCoreConfigured();
 };
 
 const getStorageClient = () => {
@@ -50,9 +34,14 @@ const getStorageClient = () => {
     return storageClient;
   }
 
-  const config = getFirebaseConfig();
-  const app = getApps().length > 0 ? getApp() : initializeApp(config);
-  storageClient = getStorage(app);
+  storageClient = getFirebaseStorageClient();
+
+  if (!storageClient) {
+    return storageClient;
+  }
+
+  // Keep an explicit runtime assertion that Storage client can resolve.
+  storageClient = getStorage(storageClient.app);
   return storageClient;
 };
 

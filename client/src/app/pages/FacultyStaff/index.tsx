@@ -9,7 +9,11 @@ import { StaffProfile } from './StaffProfile';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
 import { Skeleton } from '../../components/ui/skeleton';
-import { readDatabase, writeDatabase } from '../../../utils/database';
+import {
+  DATABASE_UPDATED_EVENT,
+  readDatabaseOnline,
+  writeDatabaseOnline,
+} from '../../../utils/database';
 import { calculateYearsAtMmpns } from '../../../utils/staffYears';
 
 const DEFAULT_TEACHING_DEPARTMENTS = ['Elementary', 'Junior High School'];
@@ -46,8 +50,8 @@ const normalizeStaffMember = (member: Partial<StaffMember>, index: number): Staf
   };
 };
 
-const loadStaffFromDatabase = () => {
-  const data = readDatabase<{ staff?: Partial<StaffMember>[] }>('faculty');
+const loadStaffFromDatabase = async () => {
+  const data = await readDatabaseOnline<{ staff?: Partial<StaffMember>[] }>('faculty');
   if (!data || !Array.isArray(data.staff)) {
     return [];
   }
@@ -62,7 +66,7 @@ const loadStaffFromDatabase = () => {
     fallbackStaffMembers.length > 1;
 
   if (shouldMigrateLegacySeed) {
-    writeDatabase('faculty', {
+    void writeDatabaseOnline('faculty', {
       ...data,
       staff: fallbackStaffMembers,
     });
@@ -119,15 +123,24 @@ export const FacultyStaff: React.FC = () => {
       }
     };
 
+    const handleDatabaseUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }>).detail;
+      if (detail?.key === 'mmpns_db_faculty') {
+        queryClient.invalidateQueries({ queryKey: FACULTY_DIRECTORY_QUERY_KEY });
+      }
+    };
+
     const handleFocus = () => {
       queryClient.invalidateQueries({ queryKey: FACULTY_DIRECTORY_QUERY_KEY });
     };
 
     window.addEventListener('storage', handleStorage);
+    window.addEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdated as EventListener);
     window.addEventListener('focus', handleFocus);
 
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdated as EventListener);
       window.removeEventListener('focus', handleFocus);
     };
   }, [queryClient]);

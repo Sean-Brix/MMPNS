@@ -1,7 +1,13 @@
 // Authentication utilities for portal login
 // Uses the credentials database for validation
 
-import { readDatabase, initializeDatabase, updateDatabaseItem } from './database';
+import {
+  initializeDatabase,
+  readDatabase,
+  readDatabaseOnline,
+  updateDatabaseItem,
+  writeDatabaseOnline,
+} from './database';
 
 export interface TeacherCredential {
   id: number;
@@ -61,6 +67,8 @@ interface CredentialsDB {
   admins: AdminCredential[];
 }
 
+let initializeDatabasePromise: Promise<void> | null = null;
+
 // Ensure the database is initialized
 const ensureDB = () => {
   const data = readDatabase<CredentialsDB>('credentials');
@@ -70,6 +78,60 @@ const ensureDB = () => {
     return readDatabase<CredentialsDB>('credentials');
   }
   return data;
+};
+
+const ensureDatabaseInitialized = async () => {
+  if (!initializeDatabasePromise) {
+    initializeDatabasePromise = initializeDatabase();
+  }
+
+  try {
+    await initializeDatabasePromise;
+  } catch {
+    // Allow retry on the next call if initialization failed.
+    initializeDatabasePromise = null;
+  }
+};
+
+const ensureDBOnline = async (): Promise<CredentialsDB | null> => {
+  await ensureDatabaseInitialized();
+
+  try {
+    const onlineData = await readDatabaseOnline<CredentialsDB>('credentials');
+    if (onlineData) {
+      return onlineData;
+    }
+  } catch (error) {
+    console.error('Failed to load credentials from cloud database:', error);
+  }
+
+  return ensureDB();
+};
+
+const persistLastLoginOnline = async (
+  accountType: 'teachers' | 'students' | 'admins',
+  accountId: number,
+  credentials: CredentialsDB,
+) => {
+  const accounts = credentials[accountType];
+
+  if (!Array.isArray(accounts)) {
+    return;
+  }
+
+  const updatedAccounts = accounts.map((account) =>
+    account.id === accountId
+      ? {
+          ...account,
+          lastLogin: new Date().toISOString(),
+        }
+      : account,
+  );
+
+  await writeDatabaseOnline('credentials', {
+    ...credentials,
+    [accountType]: updatedAccounts,
+  });
 };
 
 // Authenticate a teacher by username and password
@@ -97,6 +159,36 @@ export const authenticateTeacher = (
   updateDatabaseItem('credentials', 'teachers', teacher.id, {
     lastLogin: new Date().toISOString(),
   });
+
+  return { success: true, teacher };
+};
+
+// Authenticate a teacher using online-first credentials
+export const authenticateTeacherOnline = async (
+  username: string,
+  password: string,
+): Promise<{ success: boolean; teacher?: TeacherCredential; error?: string }> => {
+  const db = await ensureDBOnline();
+  if (!db || !db.teachers) {
+    return { success: false, error: 'Unable to access credentials database.' };
+  }
+
+  const teacher = db.teachers.find(
+    (record) =>
+      record.username.toLowerCase() === username.trim().toLowerCase() &&
+      record.password === password &&
+      record.status === 'active',
+  );
+
+  if (!teacher) {
+    return { success: false, error: 'Invalid username or password. Please try again.' };
+  }
+
+  try {
+    await persistLastLoginOnline('teachers', teacher.id, db);
+  } catch (error) {
+    console.error('Failed to persist teacher last login online:', error);
+  }
 
   return { success: true, teacher };
 };
@@ -130,6 +222,36 @@ export const authenticateStudent = (
   return { success: true, student };
 };
 
+// Authenticate a student using online-first credentials
+export const authenticateStudentOnline = async (
+  studentId: string,
+  password: string,
+): Promise<{ success: boolean; student?: StudentCredential; error?: string }> => {
+  const db = await ensureDBOnline();
+  if (!db || !db.students) {
+    return { success: false, error: 'Unable to access credentials database.' };
+  }
+
+  const student = db.students.find(
+    (record) =>
+      record.studentId.toLowerCase() === studentId.trim().toLowerCase() &&
+      record.password === password &&
+      record.status === 'active',
+  );
+
+  if (!student) {
+    return { success: false, error: 'Invalid Student ID or password. Please try again.' };
+  }
+
+  try {
+    await persistLastLoginOnline('students', student.id, db);
+  } catch (error) {
+    console.error('Failed to persist student last login online:', error);
+  }
+
+  return { success: true, student };
+};
+
 // Authenticate an admin by username and password
 export const authenticateAdmin = (
   username: string,
@@ -155,6 +277,36 @@ export const authenticateAdmin = (
   updateDatabaseItem('credentials', 'admins', admin.id, {
     lastLogin: new Date().toISOString(),
   });
+
+  return { success: true, admin };
+};
+
+// Authenticate an admin using online-first credentials
+export const authenticateAdminOnline = async (
+  username: string,
+  password: string,
+): Promise<{ success: boolean; admin?: AdminCredential; error?: string }> => {
+  const db = await ensureDBOnline();
+  if (!db || !db.admins) {
+    return { success: false, error: 'Unable to access credentials database.' };
+  }
+
+  const admin = db.admins.find(
+    (record) =>
+      record.username.toLowerCase() === username.trim().toLowerCase() &&
+      record.password === password &&
+      record.status === 'active',
+  );
+
+  if (!admin) {
+    return { success: false, error: 'Invalid username or password. Please try again.' };
+  }
+
+  try {
+    await persistLastLoginOnline('admins', admin.id, db);
+  } catch (error) {
+    console.error('Failed to persist admin last login online:', error);
+  }
 
   return { success: true, admin };
 };

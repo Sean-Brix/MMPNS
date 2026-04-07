@@ -7,6 +7,7 @@ import { Footer } from '../components/Footer';
 import { ImagePlus } from 'lucide-react';
 import { getTeacherSession } from '../../utils/auth';
 import { HOME_IMAGE_EDIT_MODE_KEY } from '../../utils/homeImageSlots';
+import { initializeDatabase } from '../../utils/database';
 
 export const RootLayout: React.FC = () => {
   const location = useLocation();
@@ -25,6 +26,10 @@ export const RootLayout: React.FC = () => {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
+
+  useEffect(() => {
+    void initializeDatabase();
+  }, []);
 
   useEffect(() => {
     const isPrincipal = getTeacherSession()?.position === 'Principal';

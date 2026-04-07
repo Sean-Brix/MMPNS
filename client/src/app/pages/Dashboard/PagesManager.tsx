@@ -3,7 +3,11 @@ import { motion } from 'motion/react';
 import { Edit, Eye, Plus, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
 
 import { uploadPrincipalEditedImageToCloud } from '../../../utils/cloudImageStorage';
-import { readDatabase, writeDatabase } from '../../../utils/database';
+import {
+  readDatabaseOnline,
+  subscribeDatabaseTable,
+  writeDatabaseOnline,
+} from '../../../utils/database';
 import { HOME_IMAGE_DEFAULTS, readHomeImageSlots, type HomeImageSlotKey } from '../../../utils/homeImageSlots';
 import { HeroSection } from '../Home/HeroSection';
 
@@ -148,25 +152,52 @@ export const PagesManager: React.FC<Props> = ({ showNotification }) => {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   useEffect(() => {
-    const data = readDatabase<any>('pages');
-    if (!data) {
-      return;
-    }
+    let isMounted = true;
 
-    const rawSlides = Array.isArray(data.home?.heroSlides) ? data.home.heroSlides : [];
-    const normalizedSlides = rawSlides
-      .map((slide: unknown, index: number) => normalizeSlide(slide, index))
-      .filter((slide): slide is FeaturedSlide => Boolean(slide));
+    const applyPagesData = (data: any) => {
+      const rawSlides = Array.isArray(data?.home?.heroSlides) ? data.home.heroSlides : [];
+      const normalizedSlides = rawSlides
+        .map((slide: unknown, index: number) => normalizeSlide(slide, index))
+        .filter((slide): slide is FeaturedSlide => Boolean(slide));
 
-    setPagesData(data);
-    setSlides(normalizedSlides);
+      setPagesData(data);
+      setSlides(normalizedSlides);
+    };
+
+    const loadPagesData = async () => {
+      const data = await readDatabaseOnline<any>('pages');
+      if (!isMounted || !data) {
+        return;
+      }
+      applyPagesData(data);
+    };
+
+    void loadPagesData();
+
+    const unsubscribe = subscribeDatabaseTable<any>(
+      'pages',
+      (nextData) => {
+        if (!isMounted || !nextData) {
+          return;
+        }
+        applyPagesData(nextData);
+      },
+      (error) => {
+        console.error('Failed to subscribe to pages table:', error);
+      },
+    );
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, filterType]);
 
-  const persistSlides = (nextSlides: FeaturedSlide[], successMessage: string) => {
+  const persistSlides = async (nextSlides: FeaturedSlide[], successMessage: string) => {
     if (!pagesData) {
       return;
     }
@@ -179,7 +210,7 @@ export const PagesManager: React.FC<Props> = ({ showNotification }) => {
       },
     };
 
-    if (writeDatabase('pages', nextData)) {
+    if (await writeDatabaseOnline('pages', nextData)) {
       setPagesData(nextData);
       setSlides(nextSlides);
       showNotification('success', successMessage);
@@ -292,14 +323,14 @@ export const PagesManager: React.FC<Props> = ({ showNotification }) => {
 
     if (modalMode === 'edit' && selectedSlide) {
       const nextSlides = slides.map((slide) => (slide.id === selectedSlide.id ? payload : slide));
-      persistSlides(nextSlides, 'Featured event updated successfully.');
+      void persistSlides(nextSlides, 'Featured event updated successfully.');
       closeModal();
       return;
     }
 
     if (modalMode === 'add') {
       const nextSlides = [...slides, payload];
-      persistSlides(nextSlides, 'Featured event added successfully.');
+      void persistSlides(nextSlides, 'Featured event added successfully.');
       closeModal();
     }
   };
@@ -310,7 +341,7 @@ export const PagesManager: React.FC<Props> = ({ showNotification }) => {
     }
 
     const nextSlides = slides.filter((slide) => slide.id !== selectedSlide.id);
-    persistSlides(nextSlides, 'Featured event removed successfully.');
+    void persistSlides(nextSlides, 'Featured event removed successfully.');
     closeModal();
   };
 

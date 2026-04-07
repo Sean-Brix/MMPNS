@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
 import {
-  authenticateStudent,
+  authenticateStudentOnline,
   saveStudentSession,
   getStudentSession,
   clearStudentSession,
@@ -27,9 +27,10 @@ export const StudentPortal: React.FC = () => {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [studentInfo, setStudentInfo] = useState<{ displayName: string; initials: string; gradeLevel: string; section: string } | null>(null);
   const [showDemoAccounts, setShowDemoAccounts] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   useEffect(() => {
-    initializeDatabase();
+    void initializeDatabase();
     const session = getStudentSession();
     if (session) {
       setIsAuthenticated(true);
@@ -42,9 +43,17 @@ export const StudentPortal: React.FC = () => {
     }
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = authenticateStudent(studentId, password);
+
+    if (isSigningIn) {
+      return;
+    }
+
+    setIsSigningIn(true);
+    setError('');
+
+    const result = await authenticateStudentOnline(studentId, password);
     if (result.success && result.student) {
       saveStudentSession(result.student);
       setIsAuthenticated(true);
@@ -58,6 +67,8 @@ export const StudentPortal: React.FC = () => {
     } else {
       setError(result.error || 'Invalid Student ID or password. Please try again.');
     }
+
+    setIsSigningIn(false);
   };
 
   const handleLogout = () => {
@@ -67,6 +78,7 @@ export const StudentPortal: React.FC = () => {
     setStudentId('');
     setPassword('');
     setActiveSection('dashboard');
+    setIsSigningIn(false);
   };
 
   const demoAccounts = getStudentAccounts();
@@ -130,6 +142,7 @@ export const StudentPortal: React.FC = () => {
                   type="text"
                   value={studentId}
                   onChange={(e) => setStudentId(e.target.value)}
+                  disabled={isSigningIn}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
                   placeholder="Enter your student ID"
                   required
@@ -141,6 +154,7 @@ export const StudentPortal: React.FC = () => {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  disabled={isSigningIn}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
                   placeholder="Enter your password"
                   required
@@ -153,9 +167,12 @@ export const StudentPortal: React.FC = () => {
               )}
               <button
                 type="submit"
-                className="w-full py-3 bg-[#185C20] text-white rounded-xl font-bold hover:bg-[#185C20]/90 transition-colors"
+                disabled={isSigningIn}
+                className={`w-full py-3 bg-[#185C20] text-white rounded-xl font-bold transition-colors ${
+                  isSigningIn ? 'opacity-70 cursor-not-allowed' : 'hover:bg-[#185C20]/90'
+                }`}
               >
-                Sign In
+                {isSigningIn ? 'Signing In...' : 'Sign In'}
               </button>
             </form>
 

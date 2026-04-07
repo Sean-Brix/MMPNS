@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Save } from 'lucide-react';
-import { readDatabase, writeDatabase } from '../../../utils/database';
+import {
+  readDatabaseOnline,
+  subscribeDatabaseTable,
+  writeDatabaseOnline,
+} from '../../../utils/database';
 
 interface Props {
   onExport: () => void;
@@ -13,12 +17,41 @@ export const SettingsManager: React.FC<Props> = ({ onExport, onImport, onReset, 
   const [data, setData] = useState<any>(null);
 
   useEffect(() => {
-    const settingsData = readDatabase('settings');
-    if (settingsData) setData(settingsData);
+    let isMounted = true;
+
+    const loadSettings = async () => {
+      const settingsData = await readDatabaseOnline<any>('settings');
+      if (!isMounted || !settingsData) {
+        return;
+      }
+
+      setData(settingsData);
+    };
+
+    void loadSettings();
+
+    const unsubscribe = subscribeDatabaseTable<any>(
+      'settings',
+      (settingsData) => {
+        if (!isMounted || !settingsData) {
+          return;
+        }
+
+        setData(settingsData);
+      },
+      (error) => {
+        console.error('Failed to subscribe to settings updates:', error);
+      },
+    );
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
-  const handleSave = () => {
-    if (writeDatabase('settings', data)) {
+  const handleSave = async () => {
+    if (await writeDatabaseOnline('settings', data)) {
       showNotification('success', 'Settings saved successfully');
     } else {
       showNotification('error', 'Failed to save settings');
@@ -59,7 +92,7 @@ export const SettingsManager: React.FC<Props> = ({ onExport, onImport, onReset, 
           <button onClick={onExport} className="px-4 py-2 bg-white border border-[#185C20]/10 text-[#185C20] rounded-lg text-xs font-bold hover:bg-[#185C20]/5 cursor-pointer">Export</button>
           <button onClick={onImport} className="px-4 py-2 bg-white border border-[#185C20]/10 text-[#185C20] rounded-lg text-xs font-bold hover:bg-[#185C20]/5 cursor-pointer">Import</button>
           <button onClick={onReset} className="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 cursor-pointer">Reset</button>
-          <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-[#185C20] text-white rounded-lg text-xs font-bold hover:bg-[#185C20]/90 cursor-pointer"><Save size={14} />Save All</button>
+          <button onClick={() => void handleSave()} className="flex items-center gap-2 px-4 py-2 bg-[#185C20] text-white rounded-lg text-xs font-bold hover:bg-[#185C20]/90 cursor-pointer"><Save size={14} />Save All</button>
         </div>
       </div>
 

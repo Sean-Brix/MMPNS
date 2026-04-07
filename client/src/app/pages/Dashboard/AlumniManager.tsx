@@ -2,7 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Edit, Eye, Plus, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
 import { alumniProfiles as fallbackAlumniProfiles } from '../AlumniGallery/data';
-import { addDatabaseItem, deleteDatabaseItem, readDatabase, updateDatabaseItem, writeDatabase } from '../../../utils/database';
+import {
+  DATABASE_UPDATED_EVENT,
+  addDatabaseItem,
+  deleteDatabaseItem,
+  readDatabase,
+  updateDatabaseItem,
+  writeDatabase,
+} from '../../../utils/database';
 import { uploadPrincipalEditedImageToCloud } from '../../../utils/cloudImageStorage';
 import { StoryReader } from '../AlumniGallery/StoryReader';
 
@@ -105,6 +112,27 @@ export const AlumniManager: React.FC<Props> = ({ showNotification }) => {
 
   useEffect(() => {
     loadAlumni();
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'mmpns_db_alumni') {
+        loadAlumni();
+      }
+    };
+
+    const handleDatabaseUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }>).detail;
+      if (detail?.key === 'mmpns_db_alumni') {
+        loadAlumni();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdated as EventListener);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdated as EventListener);
+    };
   }, []);
 
   const loadAlumni = () => {

@@ -1,5 +1,5 @@
-// Mock database utilities using localStorage to simulate JSON file read/write
-// In a real implementation, this would use actual file system or API calls
+// Database utilities with Firestore-first persistence and local cache fallback.
+// Local storage is retained as a compatibility cache during migration.
 
 import facultyData from '../data/seeds/faculty.json';
 import alumniData from '../data/seeds/alumni.json';
@@ -7,8 +7,35 @@ import pagesData from '../data/seeds/pages.json';
 import settingsData from '../data/seeds/settings.json';
 import credentialsData from '../data/seeds/credentials.json';
 import schoolYearsData from '../data/seeds/school_years.json';
+import {
+  getCloudTable,
+  isCloudDatabaseConfigured,
+  setCloudTable,
+  subscribeCloudTable,
+  type CloudDatabaseTable,
+} from './firestoreDatabase';
 
-type DatabaseTable = 'faculty' | 'alumni' | 'pages' | 'settings' | 'credentials' | 'school_years';
+export type DatabaseTable = CloudDatabaseTable;
+
+const DATABASE_TABLES: DatabaseTable[] = [
+  'faculty',
+  'alumni',
+  'pages',
+  'settings',
+  'credentials',
+  'school_years',
+  'teacher_portal',
+];
+
+export const DATABASE_UPDATED_EVENT = 'mmpns-db-updated';
+
+type DatabaseUpdateSource = 'local' | 'cloud';
+
+interface DatabaseUpdateEventDetail {
+  key: string;
+  table: DatabaseTable;
+  source: DatabaseUpdateSource;
+}
 
 const initialData = {
   faculty: facultyData,
@@ -16,8 +43,14 @@ const initialData = {
   pages: pagesData,
   settings: settingsData,
   credentials: credentialsData,
-  school_years: schoolYearsData
+  school_years: schoolYearsData,
+  teacher_portal: {
+    classes: {},
+    studentsByYear: {},
+  },
 };
+
+let hasStartedCloudSubscriptions = false;
 
 const ADMIN_TEACHER_TEMPLATE = {
   id: 5,
@@ -84,55 +117,241 @@ const migrateCredentials = (rawValue: string | null) => {
   }
 };
 
-// Initialize database from JSON files (simulated with localStorage)
-export const initializeDatabase = async () => {
-  const tables: DatabaseTable[] = ['faculty', 'alumni', 'pages', 'settings', 'credentials', 'school_years'];
-  
-  for (const table of tables) {
-    const storageKey = `mmpns_db_${table}`;
-    if (!localStorage.getItem(storageKey)) {
-      // Load initial data from imported JSON
-      try {
-        const data = initialData[table];
-        localStorage.setItem(storageKey, JSON.stringify(data));
-      } catch (error) {
-        console.error(`Failed to initialize ${table} table:`, error);
-      }
-    }
+const hasWindow = () => typeof window !== 'undefined';
 
-    if (table === 'credentials') {
-      try {
-        const existingValue = localStorage.getItem(storageKey);
-        const migrated = migrateCredentials(existingValue);
-        localStorage.setItem(storageKey, JSON.stringify(migrated));
-      } catch (error) {
-        console.error('Failed to migrate credentials table:', error);
+const getStorageKey = (table: DatabaseTable) => `mmpns_db_${table}`;
+
+const emitDatabaseUpdated = (table: DatabaseTable, source: DatabaseUpdateSource) => {
+  if (!hasWindow()) {
+    return;
+  }
+
+  const detail: DatabaseUpdateEventDetail = {
+    key: getStorageKey(table),
+    table,
+    source,
+  };
+
+  window.dispatchEvent(new CustomEvent<DatabaseUpdateEventDetail>(DATABASE_UPDATED_EVENT, { detail }));
+};
+
+const normalizeTableData = (table: DatabaseTable, value: unknown) => {
+  if (table !== 'credentials') {
+    return value;
+  }
+
+  try {
+    const serialized = JSON.stringify(value ?? null);
+    return migrateCredentials(serialized);
+  } catch {
+    return migrateCredentials(null);
+  }
+};
+
+const persistTableLocally = (
+  table: DatabaseTable,
+  value: unknown,
+  source: DatabaseUpdateSource,
+) => {
+  if (!hasWindow()) {
+    return;
+  }
+
+  const normalized = normalizeTableData(table, value);
+  localStorage.setItem(getStorageKey(table), JSON.stringify(normalized));
+  emitDatabaseUpdated(table, source);
+};
+
+const startCloudSubscriptions = () => {
+  if (!hasWindow() || !isCloudDatabaseConfigured() || hasStartedCloudSubscriptions) {
+    return;
+  }
+
+  hasStartedCloudSubscriptions = true;
+
+  DATABASE_TABLES.forEach((table) => {
+    subscribeCloudTable(
+      table,
+      (cloudValue) => {
+        if (cloudValue === null) {
+          return;
+        }
+
+        try {
+          persistTableLocally(table, cloudValue, 'cloud');
+        } catch (error) {
+          console.error(`Failed to sync ${table} from cloud snapshot:`, error);
+        }
+      },
+      (error) => {
+        console.error(`Cloud listener failed for ${table}:`, error);
+      },
+    );
+  });
+};
+
+// Initialize local cache from cloud and seed missing cloud docs.
+export const initializeDatabase = async () => {
+  if (!hasWindow()) {
+    return;
+  }
+
+  for (const table of DATABASE_TABLES) {
+    try {
+      if (!localStorage.getItem(getStorageKey(table))) {
+        persistTableLocally(table, initialData[table], 'local');
       }
+    } catch (error) {
+      console.error(`Failed to initialize ${table} local cache:`, error);
     }
   }
+
+  try {
+    persistTableLocally('credentials', readDatabase('credentials') ?? credentialsData, 'local');
+  } catch (error) {
+    console.error('Failed to migrate local credentials cache:', error);
+  }
+
+  if (!isCloudDatabaseConfigured()) {
+    return;
+  }
+
+  for (const table of DATABASE_TABLES) {
+    try {
+      const cloudValue = await getCloudTable(table);
+
+      if (cloudValue === null) {
+        const seedValue = readDatabase(table) ?? initialData[table];
+        const normalizedSeed = normalizeTableData(table, seedValue);
+        await setCloudTable(table, normalizedSeed);
+        continue;
+      }
+
+      const normalizedCloudValue = normalizeTableData(table, cloudValue);
+      persistTableLocally(table, normalizedCloudValue, 'cloud');
+
+      if (table === 'credentials') {
+        await setCloudTable(table, normalizedCloudValue);
+      }
+    } catch (error) {
+      console.error(`Failed to initialize ${table} from cloud:`, error);
+    }
+  }
+
+  startCloudSubscriptions();
 };
 
 // Read from database
 export const readDatabase = <T = any>(table: DatabaseTable): T | null => {
-  const storageKey = `mmpns_db_${table}`;
-  const data = localStorage.getItem(storageKey);
-  return data ? JSON.parse(data) : null;
+  if (!hasWindow()) {
+    return null;
+  }
+
+  const data = localStorage.getItem(getStorageKey(table));
+  if (!data) {
+    return null;
+  }
+
+  try {
+    return normalizeTableData(table, JSON.parse(data)) as T;
+  } catch {
+    return null;
+  }
+};
+
+export const readDatabaseOnline = async <T = any>(table: DatabaseTable): Promise<T | null> => {
+  if (!isCloudDatabaseConfigured()) {
+    return readDatabase<T>(table);
+  }
+
+  try {
+    const cloudValue = await getCloudTable<T>(table);
+    if (cloudValue !== null) {
+      persistTableLocally(table, cloudValue, 'cloud');
+      return normalizeTableData(table, cloudValue) as T;
+    }
+  } catch (error) {
+    console.error(`Failed to read ${table} from cloud:`, error);
+  }
+
+  return readDatabase<T>(table);
 };
 
 // Write to database
 export const writeDatabase = (table: DatabaseTable, data: any): boolean => {
   try {
-    const storageKey = `mmpns_db_${table}`;
-    const dataWithTimestamp = {
-      ...data,
-      lastUpdated: new Date().toISOString()
-    };
-    localStorage.setItem(storageKey, JSON.stringify(dataWithTimestamp));
+    const dataWithTimestamp =
+      data && typeof data === 'object' && !Array.isArray(data)
+        ? {
+            ...data,
+            lastUpdated: new Date().toISOString(),
+          }
+        : data;
+
+    persistTableLocally(table, dataWithTimestamp, 'local');
+
+    if (isCloudDatabaseConfigured()) {
+      void setCloudTable(table, normalizeTableData(table, dataWithTimestamp)).catch((error) => {
+        console.error(`Failed to write ${table} to cloud:`, error);
+      });
+    }
+
     return true;
   } catch (error) {
     console.error(`Failed to write to ${table}:`, error);
     return false;
   }
+};
+
+export const writeDatabaseOnline = async (table: DatabaseTable, data: any): Promise<boolean> => {
+  try {
+    const dataWithTimestamp =
+      data && typeof data === 'object' && !Array.isArray(data)
+        ? {
+            ...data,
+            lastUpdated: new Date().toISOString(),
+          }
+        : data;
+
+    persistTableLocally(table, dataWithTimestamp, 'local');
+
+    if (!isCloudDatabaseConfigured()) {
+      return true;
+    }
+
+    return await setCloudTable(table, normalizeTableData(table, dataWithTimestamp));
+  } catch (error) {
+    console.error(`Failed to write ${table} online:`, error);
+    return false;
+  }
+};
+
+export const subscribeDatabaseTable = <T = any>(
+  table: DatabaseTable,
+  callback: (data: T | null) => void,
+  onError?: (error: unknown) => void,
+) => {
+  if (!isCloudDatabaseConfigured()) {
+    callback(readDatabase<T>(table));
+    return () => {
+      // No-op when cloud database is not configured.
+    };
+  }
+
+  return subscribeCloudTable<T>(
+    table,
+    (data) => {
+      if (data !== null) {
+        try {
+          persistTableLocally(table, data, 'cloud');
+        } catch (error) {
+          console.error(`Failed to persist ${table} snapshot locally:`, error);
+        }
+      }
+      callback(data === null ? null : (normalizeTableData(table, data) as T));
+    },
+    onError,
+  );
 };
 
 // Update specific item in an array
@@ -224,13 +443,5 @@ export const importDatabase = (table: DatabaseTable, jsonString: string): boolea
 
 // Reset database to initial state
 export const resetDatabase = async (table: DatabaseTable): Promise<boolean> => {
-  try {
-    const storageKey = `mmpns_db_${table}`;
-    const data = initialData[table];
-    localStorage.setItem(storageKey, JSON.stringify(data));
-    return true;
-  } catch (error) {
-    console.error(`Failed to reset ${table}:`, error);
-    return false;
-  }
+  return writeDatabaseOnline(table, initialData[table]);
 };

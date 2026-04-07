@@ -23,7 +23,11 @@ import {
   writeSiteImageSlots,
   type SiteImageSlotMap,
 } from '../../../utils/siteImageSlots';
-import { readDatabase, writeDatabase } from '../../../utils/database';
+import {
+  DATABASE_UPDATED_EVENT,
+  readDatabaseOnline,
+  writeDatabaseOnline,
+} from '../../../utils/database';
 
 type AlumniGalleryImageSlot = 'alumniGalleryJames' | 'alumniGalleryJamesVintage';
 
@@ -98,8 +102,8 @@ const normalizeAlumniProfile = (profile: Partial<AlumniProfile>, index: number):
   };
 };
 
-const loadAlumniProfiles = () => {
-  const data = readDatabase<{ alumni?: Partial<AlumniProfile>[] }>('alumni');
+const loadAlumniProfiles = async () => {
+  const data = await readDatabaseOnline<{ alumni?: Partial<AlumniProfile>[] }>('alumni');
   if (!data || !Array.isArray(data.alumni)) {
     return {
       profiles: [],
@@ -120,7 +124,7 @@ const loadAlumniProfiles = () => {
     fallbackAlumniProfiles.length > 1;
 
   if (shouldMigrateLegacySeed) {
-    writeDatabase('alumni', {
+    void writeDatabaseOnline('alumni', {
       ...data,
       alumni: fallbackAlumniProfiles,
     });
@@ -185,15 +189,24 @@ export const AlumniGallery: React.FC = () => {
       }
     };
 
+    const handleDatabaseUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }>).detail;
+      if (detail?.key === 'mmpns_db_alumni') {
+        queryClient.invalidateQueries({ queryKey: ALUMNI_PROFILES_QUERY_KEY });
+      }
+    };
+
     const handleFocus = () => {
       queryClient.invalidateQueries({ queryKey: ALUMNI_PROFILES_QUERY_KEY });
     };
 
     window.addEventListener('storage', handleStorage);
+    window.addEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdated as EventListener);
     window.addEventListener('focus', handleFocus);
 
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdated as EventListener);
       window.removeEventListener('focus', handleFocus);
     };
   }, [queryClient]);

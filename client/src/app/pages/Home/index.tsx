@@ -9,7 +9,11 @@ import { AccreditationSection } from './AccreditationSection';
 import { InstitutionalCTA } from './InstitutionalCTA';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { getTeacherSession } from '../../../utils/auth';
-import { readDatabase } from '../../../utils/database';
+import {
+  readDatabase,
+  readDatabaseOnline,
+  subscribeDatabaseTable,
+} from '../../../utils/database';
 import {
   getCachedSiteDefaultImageUrls,
   resolveHomeDefaultImages,
@@ -271,6 +275,19 @@ export const Home: React.FC = () => {
     ...HOME_IMAGE_DEFAULTS,
   });
 
+  const applyFeaturedSlidesFromPages = (pagesData: any) => {
+    const rawSlides = pagesData?.home?.heroSlides;
+    if (!Array.isArray(rawSlides)) {
+      return;
+    }
+
+    const normalizedSlides = rawSlides
+      .map((slide, index) => normalizeFeaturedEventSlide(slide, index))
+      .filter((slide): slide is FeaturedEventSlideTemplate => Boolean(slide));
+
+    setFeaturedEventSlides(normalizedSlides.length > 0 ? normalizedSlides : DEFAULT_FEATURED_EVENT_SLIDES);
+  };
+
   const imageSlotLabels: Record<HomeImageSlotKey, string> = {
     heroMain: 'Hero slide: Excellence Through Faith',
     heroGarden: 'Hero slide: Tradition of Service',
@@ -293,15 +310,37 @@ export const Home: React.FC = () => {
     setImageSlots(readHomeImageSlots());
     setHasLoadedImageSlots(true);
 
-    const pagesData = readDatabase<any>('pages');
-    const rawSlides = pagesData?.home?.heroSlides;
-    if (Array.isArray(rawSlides)) {
-      const normalizedSlides = rawSlides
-        .map((slide, index) => normalizeFeaturedEventSlide(slide, index))
-        .filter((slide): slide is FeaturedEventSlideTemplate => Boolean(slide));
+    const localPagesData = readDatabase<any>('pages');
+    applyFeaturedSlidesFromPages(localPagesData);
 
-      setFeaturedEventSlides(normalizedSlides.length > 0 ? normalizedSlides : DEFAULT_FEATURED_EVENT_SLIDES);
-    }
+    let isMounted = true;
+
+    void readDatabaseOnline<any>('pages').then((onlinePagesData) => {
+      if (!isMounted || !onlinePagesData) {
+        return;
+      }
+
+      applyFeaturedSlidesFromPages(onlinePagesData);
+    });
+
+    const unsubscribe = subscribeDatabaseTable<any>(
+      'pages',
+      (pagesData) => {
+        if (!isMounted || !pagesData) {
+          return;
+        }
+
+        applyFeaturedSlidesFromPages(pagesData);
+      },
+      (error) => {
+        console.error('Failed to subscribe to pages updates:', error);
+      },
+    );
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   React.useEffect(() => {

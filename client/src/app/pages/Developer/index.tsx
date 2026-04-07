@@ -23,7 +23,7 @@ import alumniSeed from '../../../data/seeds/alumni.json';
 import pagesSeed from '../../../data/seeds/pages.json';
 import schoolYearsSeed from '../../../data/seeds/school_years.json';
 import {
-  authenticateAdmin,
+  authenticateAdminOnline,
   clearAdminSession,
   getAdminSession,
   saveAdminSession,
@@ -307,10 +307,10 @@ export const Developer: React.FC = () => {
     bootstrap();
   }, []);
 
-  const handleLogin = (event: React.FormEvent) => {
+  const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    const result = authenticateAdmin(username, password);
+    const result = await authenticateAdminOnline(username, password);
     if (!result.success || !result.admin) {
       showBanner('error', result.error || 'Invalid credentials.');
       return;

@@ -10,13 +10,13 @@ import {
   Shield, School, Calendar, UserCheck, Star, Target, Trophy, Clock, RefreshCw, ImagePlus
 } from 'lucide-react';
 import {
-  authenticateTeacher,
+  authenticateTeacherOnline,
   saveTeacherSession,
   getTeacherSession,
   clearTeacherSession,
   getTeacherAccounts,
 } from '../../../utils/auth';
-import { initializeDatabase } from '../../../utils/database';
+import { initializeDatabase, readDatabaseOnline, writeDatabaseOnline } from '../../../utils/database';
 import { HOME_IMAGE_EDIT_MODE_KEY } from '../../../utils/homeImageSlots';
 import { PrincipalSubjects } from '../../components/principal/PrincipalSubjects';
 import { PrincipalEvaluation } from '../../components/principal/PrincipalEvaluation';
@@ -101,6 +101,11 @@ interface Activity { id: string; subjectId: string; quarterId: number; type: 'wr
 interface Grade { studentId: string; activityId: string; score: number | null; }
 interface TeacherAssignment { subjectId: string; yearLevel: string; }
 interface Quarter { id: number; label: string; startDate: string; endDate: string; isLocked: boolean; }
+interface TeacherPortalClassData { activities: Activity[]; grades: Grade[]; }
+interface TeacherPortalStore {
+  classes?: Record<string, TeacherPortalClassData>;
+  studentsByYear?: Record<string, Student[]>;
+}
 
 /* ══════════════════════════════════════════════
    Static Data
@@ -123,6 +128,17 @@ const QUARTERS: Quarter[] = [
   { id: 3, label: '3rd Quarter', startDate: '2025-11-17', endDate: '2026-02-20', isLocked: false },
   { id: 4, label: '4th Quarter', startDate: '2026-02-23', endDate: '2026-04-03', isLocked: false },
 ];
+
+const TEACHER_PORTAL_TABLE = 'teacher_portal' as const;
+const EMPTY_TEACHER_PORTAL_STORE: TeacherPortalStore = {
+  classes: {},
+  studentsByYear: {},
+};
+
+const normalizeTeacherPortalStore = (store: TeacherPortalStore | null | undefined): TeacherPortalStore => ({
+  classes: store?.classes ?? {},
+  studentsByYear: store?.studentsByYear ?? {},
+});
 
 const TEACHER_ASSIGNMENTS: Record<string, TeacherAssignment[]> = {
   'teacher.santos': [
@@ -329,6 +345,7 @@ export const TeacherPortal: React.FC = () => {
   const [editActivityMaxScore, setEditActivityMaxScore] = useState(0);
   const [mobileDetailStudentId, setMobileDetailStudentId] = useState<string | null>(null);
   const [mobileDetailSource, setMobileDetailSource] = useState<'grading' | 'students'>('grading');
+  const teacherPortalStoreRef = useRef<TeacherPortalStore>(EMPTY_TEACHER_PORTAL_STORE);
 
   // ── Init ──
   useEffect(() => {
@@ -515,19 +532,76 @@ export const TeacherPortal: React.FC = () => {
 
   useEffect(() => {
     if (!selectedSubjectId || !selectedYearLevel) return;
-    const key = `${selectedSubjectId}-${selectedYearLevel}-q${selectedQuarter}`;
-    const savedActivities = localStorage.getItem(`activities-${key}`);
-    const savedGrades = localStorage.getItem(`grades-${key}`);
-    const savedStudents = localStorage.getItem(`students-${selectedYearLevel}`);
-    const studs = savedStudents ? JSON.parse(savedStudents) : generateStudents(selectedYearLevel);
-    setStudents(studs);
-    if (!savedStudents) localStorage.setItem(`students-${selectedYearLevel}`, JSON.stringify(studs));
-    const acts = savedActivities ? JSON.parse(savedActivities) : generateDefaultActivities(selectedSubjectId, selectedQuarter);
-    setActivities(acts);
-    if (!savedActivities) localStorage.setItem(`activities-${key}`, JSON.stringify(acts));
-    const gds = savedGrades ? JSON.parse(savedGrades) : generateMockGrades(studs, acts);
-    setGrades(gds);
-    if (!savedGrades) localStorage.setItem(`grades-${key}`, JSON.stringify(gds));
+    let isCancelled = false;
+
+    const loadTeacherPortalData = async () => {
+      const key = `${selectedSubjectId}-${selectedYearLevel}-q${selectedQuarter}`;
+      const store = normalizeTeacherPortalStore(
+        await readDatabaseOnline<TeacherPortalStore>(TEACHER_PORTAL_TABLE),
+      );
+
+      if (isCancelled) {
+        return;
+      }
+
+      teacherPortalStoreRef.current = store;
+
+      const studentsByYear = store.studentsByYear ?? {};
+      const classes = store.classes ?? {};
+      const classData = classes[key];
+
+      const hasStudents = Array.isArray(studentsByYear[selectedYearLevel]);
+      const hasActivities = Array.isArray(classData?.activities);
+      const hasGrades = Array.isArray(classData?.grades);
+
+      const nextStudents = hasStudents
+        ? (studentsByYear[selectedYearLevel] as Student[])
+        : generateStudents(selectedYearLevel);
+      const nextActivities = hasActivities
+        ? (classData?.activities as Activity[])
+        : generateDefaultActivities(selectedSubjectId, selectedQuarter);
+      const nextGrades = hasGrades
+        ? (classData?.grades as Grade[])
+        : generateMockGrades(nextStudents, nextActivities);
+
+      if (isCancelled) {
+        return;
+      }
+
+      setStudents(nextStudents);
+      setActivities(nextActivities);
+      setGrades(nextGrades);
+
+      if (hasStudents && hasActivities && hasGrades) {
+        return;
+      }
+
+      const seededStore: TeacherPortalStore = {
+        ...store,
+        studentsByYear: {
+          ...studentsByYear,
+          [selectedYearLevel]: nextStudents,
+        },
+        classes: {
+          ...classes,
+          [key]: {
+            activities: nextActivities,
+            grades: nextGrades,
+          },
+        },
+      };
+
+      teacherPortalStoreRef.current = seededStore;
+      await writeDatabaseOnline(TEACHER_PORTAL_TABLE, seededStore);
+    };
+
+    void loadTeacherPortalData().catch((loadError) => {
+      console.error('Failed to load teacher portal data:', loadError);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [selectedSubjectId, selectedYearLevel, selectedQuarter]);
 
   useEffect(() => {
@@ -540,12 +614,30 @@ export const TeacherPortal: React.FC = () => {
   const saveData = useCallback(() => {
     if (!selectedSubjectId || !selectedYearLevel) return;
     const key = `${selectedSubjectId}-${selectedYearLevel}-q${selectedQuarter}`;
-    localStorage.setItem(`activities-${key}`, JSON.stringify(activities));
-    localStorage.setItem(`grades-${key}`, JSON.stringify(grades));
-    localStorage.setItem(`students-${selectedYearLevel}`, JSON.stringify(students));
+    const store = normalizeTeacherPortalStore(teacherPortalStoreRef.current);
+
+    const nextStore: TeacherPortalStore = {
+      ...store,
+      studentsByYear: {
+        ...store.studentsByYear,
+        [selectedYearLevel]: students,
+      },
+      classes: {
+        ...store.classes,
+        [key]: {
+          activities,
+          grades,
+        },
+      },
+    };
+
+    teacherPortalStoreRef.current = nextStore;
+    void writeDatabaseOnline(TEACHER_PORTAL_TABLE, nextStore).catch((persistError) => {
+      console.error('Failed to persist teacher portal data:', persistError);
+    });
   }, [selectedSubjectId, selectedYearLevel, selectedQuarter, activities, grades, students]);
 
-  useEffect(() => { saveData(); }, [activities, grades, students]);
+  useEffect(() => { saveData(); }, [activities, grades, students, saveData]);
 
   const currentSubject = SUBJECTS.find(s => s.id === selectedSubjectId);
   const currentQuarter = QUARTERS.find(q => q.id === selectedQuarter);
@@ -563,7 +655,7 @@ export const TeacherPortal: React.FC = () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 650));
 
-    const result = authenticateTeacher(username, password);
+    const result = await authenticateTeacherOnline(username, password);
     if (result.success && result.teacher) {
       saveTeacherSession(result.teacher);
 
