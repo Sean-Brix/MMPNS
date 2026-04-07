@@ -1,0 +1,83 @@
+{
+  "lastUpdated": "2026-03-02T00:00:00Z",
+  "home": {
+    "heroTitle": "Welcome to Madre Maria Pia Notari School",
+    "heroSubtitle": "Building Tomorrow's Leaders Today",
+    "heroDescription": "A beacon of Catholic education in the heart of the community, providing quality learning experiences rooted in faith, excellence, and service.",
+    "missionStatement": "To provide holistic Catholic education that nurtures the intellectual, spiritual, moral, and physical development of every child.",
+    "visionStatement": "A community of lifelong learners who are compassionate leaders, critical thinkers, and responsible citizens guided by faith and values.",
+    "heroSlides": [
+      {
+        "id": "home-hero-main",
+        "type": "hero",
+        "title": "Excellence Through Faith",
+        "subtitle": "Developing Global Leaders Rooted in Faith",
+        "description": "Welcome to Madre Maria Pia Notari School, where we blend 35+ years of academic tradition with a vibrant Catholic charism to nurture the leaders of tomorrow.",
+        "location": "Paranaque City",
+        "accent": "Through Faith",
+        "imageSlot": "heroMain"
+      },
+      {
+        "id": "home-event-christmas",
+        "type": "announcement",
+        "title": "Christmas & New Year Dance",
+        "subtitle": "FESTIVE CELEBRATION",
+        "description": "Our students bring joy and talent to the stage in our annual holiday presentation. A vibrant celebration of our community's spirit as we welcome the new year with dance and gratitude.",
+        "location": "MMPNS Main Stage",
+        "date": "Dec 20",
+        "time": "2:00 PM",
+        "imageSlot": "heroChristmas"
+      },
+      {
+        "id": "home-hero-garden",
+        "type": "hero",
+        "title": "Tradition of Service",
+        "subtitle": "Rooted in Eucharistic Adoration",
+        "description": "Guided by the spiritual legacy of the Sisters Adorers of the Holy Eucharist, we integrate devotion and discipline into every aspect of campus life.",
+        "location": "Spirituality Center",
+        "accent": "Rooted in Service",
+        "imageSlot": "heroGarden"
+      },
+      {
+        "id": "home-event-mass",
+        "type": "bulletin",
+        "title": "School Community Mass",
+        "subtitle": "EUCHARISTIC CELEBRATION",
+        "description": "Rooted in the Sisters Adorers charism, our school community gathers regularly for the Holy Sacrifice of the Mass, the source and summit of our Christian life and academic discipline.",
+        "location": "MMPNS Quadrangle",
+        "date": "Monthly",
+        "time": "8:30 AM",
+        "imageSlot": "heroMass"
+      }
+    ]
+  },
+  "about": {
+    "title": "About MMPNS",
+    "introduction": "Madre Maria Pia Notari School (MMPNS) has been a cornerstone of Catholic education since its founding. Named after our patroness, the school embodies her spirit of service, compassion, and dedication to youth formation.",
+    "history": "Founded by the Sisters of the Holy Spirit, MMPNS began as a small community school serving local families. Over the decades, it has grown into a respected institution known for academic excellence and values formation.",
+    "coreValues": [
+      {
+        "title": "Faith",
+        "description": "Grounded in Catholic teachings and lived spirituality"
+      },
+      {
+        "title": "Excellence",
+        "description": "Commitment to academic rigor and continuous improvement"
+      },
+      {
+        "title": "Service",
+        "description": "Dedication to serving God and neighbor with compassion"
+      },
+      {
+        "title": "Integrity",
+        "description": "Uprightness in character and actions"
+      }
+    ]
+  },
+  "contact": {
+    "address": "123 Education Avenue, Quezon City, Metro Manila",
+    "phone": "+63 2 1234 5678",
+    "email": "info@mmpns.edu.ph",
+    "officeHours": "Monday to Friday: 7:00 AM - 5:00 PM"
+  }
+}
