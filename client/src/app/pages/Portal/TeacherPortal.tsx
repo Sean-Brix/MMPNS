@@ -265,6 +265,8 @@ export const TeacherPortal: React.FC = () => {
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [editActivityTitle, setEditActivityTitle] = useState('');
   const [editActivityMaxScore, setEditActivityMaxScore] = useState(0);
+  const [mobileDetailStudentId, setMobileDetailStudentId] = useState<string | null>(null);
+  const [mobileDetailSource, setMobileDetailSource] = useState<'grading' | 'students'>('grading');
 
   // ── Init ──
   useEffect(() => {
@@ -420,6 +422,11 @@ export const TeacherPortal: React.FC = () => {
       setSelectedStudentIds(new Set(sortedGrades.map(g => g.student.id)));
     }
   };
+
+  const openMobileStudentDetail = (studentId: string, source: 'grading' | 'students') => {
+    setMobileDetailSource(source);
+    setMobileDetailStudentId(studentId);
+  };
   const applyBulkScore = () => {
     if (!bulkActivityId || bulkScore === '' || selectedStudentIds.size === 0) return;
     const act = activities.find(a => a.id === bulkActivityId);
@@ -462,6 +469,22 @@ export const TeacherPortal: React.FC = () => {
     });
     return filtered;
   }, [computedGrades, sortField, sortAsc, searchQuery]);
+
+  const mobileDetailEntry = useMemo(
+    () => computedGrades.find((entry) => entry.student.id === mobileDetailStudentId) || null,
+    [computedGrades, mobileDetailStudentId],
+  );
+
+  const detailTabActivities = useMemo(
+    () => (gradingTab === 'summary' ? [] : activities.filter((activity) => activity.type === gradingTab)),
+    [activities, gradingTab],
+  );
+
+  const isCurrentQuarterLocked = Boolean(currentQuarter?.isLocked);
+
+  useEffect(() => {
+    setMobileDetailStudentId(null);
+  }, [activeSection, gradingTab, selectedSubjectId, selectedYearLevel, selectedQuarter]);
 
   const analytics = useMemo(() => {
     if (computedGrades.length === 0) return null;
@@ -964,7 +987,7 @@ export const TeacherPortal: React.FC = () => {
         {/* Grading tabs */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {/* Tab bar */}
-          <div className="flex items-center border-b border-gray-100 px-1 pt-1 gap-0.5 overflow-x-auto scrollbar-hide">
+          <div className="grid grid-cols-2 md:grid-cols-4 border-b border-gray-100 p-1 gap-1">
             {[
               { key: 'summary', label: 'Summary', count: students.length },
               { key: 'written', label: 'Written Works', count: writtenActs.length },
@@ -972,8 +995,8 @@ export const TeacherPortal: React.FC = () => {
               { key: 'quarterly', label: 'Quarterly Exam', count: qaActs.length },
             ].map(tab => (
               <button key={tab.key} onClick={() => { setGradingTab(tab.key as any); setSelectedStudentIds(new Set()); setEditMode(false); setEditingActivityId(null); }}
-                className={`relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold whitespace-nowrap rounded-t-xl transition-all ${
-                  gradingTab === tab.key ? 'text-[#185C20] bg-[#185C20]/5' : 'text-gray-400 hover:text-gray-600'
+                className={`relative flex items-center justify-between gap-1.5 px-3 py-2.5 text-xs font-bold rounded-xl transition-all ${
+                  gradingTab === tab.key ? 'text-[#185C20] bg-[#185C20]/5 border border-[#185C20]/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
                 }`}>
                 {tab.label}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${gradingTab === tab.key ? 'bg-[#185C20] text-white' : 'bg-gray-100 text-gray-400'}`}>{tab.count}</span>
@@ -997,59 +1020,87 @@ export const TeacherPortal: React.FC = () => {
 
           {/* SUMMARY TAB */}
           {gradingTab === 'summary' && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-gray-50/80">
-                    <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50/80 z-10 min-w-[180px]">#  Student</th>
-                    <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">WW<br/><span className="text-gray-300 font-normal normal-case">({currentSubject?.weights.written}%)</span></th>
-                    <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">PT<br/><span className="text-gray-300 font-normal normal-case">({currentSubject?.weights.performance}%)</span></th>
-                    <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">QA<br/><span className="text-gray-300 font-normal normal-case">({currentSubject?.weights.quarterly}%)</span></th>
-                    <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Initial</th>
-                    <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Final</th>
-                    <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Remarks</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedGrades.map(({ student, initialGrade, transmutedGrade, breakdown }, idx) => (
-                    <tr key={student.id} className="border-t border-gray-50 hover:bg-[#185C20]/[0.02] transition-colors">
-                      <td className="py-2.5 px-4 sticky left-0 bg-white z-10 min-w-[180px]">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-[10px] text-gray-300 w-4 text-right tabular-nums">{idx + 1}</span>
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${student.gender === 'M' ? 'bg-sky-50 text-sky-500' : 'bg-pink-50 text-pink-500'}`}>
-                            {student.name.charAt(0)}
-                          </div>
-                          <span className="font-semibold text-gray-700 truncate">{student.name}</span>
-                        </div>
-                      </td>
-                      <td className="text-center py-2.5 px-3 text-gray-500 tabular-nums">{breakdown.written.weighted.toFixed(1)}</td>
-                      <td className="text-center py-2.5 px-3 text-gray-500 tabular-nums">{breakdown.performance.weighted.toFixed(1)}</td>
-                      <td className="text-center py-2.5 px-3 text-gray-500 tabular-nums">{breakdown.quarterly.weighted.toFixed(1)}</td>
-                      <td className="text-center py-2.5 px-3 text-gray-600 font-semibold tabular-nums">{initialGrade.toFixed(1)}</td>
-                      <td className="text-center py-2.5 px-3">
-                        <span className={`inline-flex items-center justify-center w-9 h-7 rounded-lg font-bold ${gradePill(transmutedGrade)} tabular-nums`}>{transmutedGrade}</span>
-                      </td>
-                      <td className="text-center py-2.5 px-3">
-                        <span className={`text-[10px] font-bold ${transmutedGrade >= 75 ? 'text-emerald-500' : 'text-red-500'}`}>
-                          {transmutedGrade >= 75 ? 'Passed' : 'Failed'}
-                        </span>
-                      </td>
+            <>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50/80">
+                      <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50/80 z-10 min-w-[180px]">#  Student</th>
+                      <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">WW<br/><span className="text-gray-300 font-normal normal-case">({currentSubject?.weights.written}%)</span></th>
+                      <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">PT<br/><span className="text-gray-300 font-normal normal-case">({currentSubject?.weights.performance}%)</span></th>
+                      <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">QA<br/><span className="text-gray-300 font-normal normal-case">({currentSubject?.weights.quarterly}%)</span></th>
+                      <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Initial</th>
+                      <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Final</th>
+                      <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Remarks</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {sortedGrades.map(({ student, initialGrade, transmutedGrade, breakdown }, idx) => (
+                      <tr key={student.id} className="border-t border-gray-50 hover:bg-[#185C20]/[0.02] transition-colors">
+                        <td className="py-2.5 px-4 sticky left-0 bg-white z-10 min-w-[180px]">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-[10px] text-gray-300 w-4 text-right tabular-nums">{idx + 1}</span>
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${student.gender === 'M' ? 'bg-sky-50 text-sky-500' : 'bg-pink-50 text-pink-500'}`}>
+                              {student.name.charAt(0)}
+                            </div>
+                            <span className="font-semibold text-gray-700 truncate">{student.name}</span>
+                          </div>
+                        </td>
+                        <td className="text-center py-2.5 px-3 text-gray-500 tabular-nums">{breakdown.written.weighted.toFixed(1)}</td>
+                        <td className="text-center py-2.5 px-3 text-gray-500 tabular-nums">{breakdown.performance.weighted.toFixed(1)}</td>
+                        <td className="text-center py-2.5 px-3 text-gray-500 tabular-nums">{breakdown.quarterly.weighted.toFixed(1)}</td>
+                        <td className="text-center py-2.5 px-3 text-gray-600 font-semibold tabular-nums">{initialGrade.toFixed(1)}</td>
+                        <td className="text-center py-2.5 px-3">
+                          <span className={`inline-flex items-center justify-center w-9 h-7 rounded-lg font-bold ${gradePill(transmutedGrade)} tabular-nums`}>{transmutedGrade}</span>
+                        </td>
+                        <td className="text-center py-2.5 px-3">
+                          <span className={`text-[10px] font-bold ${transmutedGrade >= 75 ? 'text-emerald-500' : 'text-red-500'}`}>
+                            {transmutedGrade >= 75 ? 'Passed' : 'Failed'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="md:hidden divide-y divide-gray-100">
+                {sortedGrades.map(({ student, transmutedGrade }) => (
+                  <button
+                    key={student.id}
+                    type="button"
+                    onClick={() => openMobileStudentDetail(student.id, 'grading')}
+                    className="w-full text-left px-4 py-3 active:bg-[#185C20]/[0.03]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-700 truncate">{student.name}</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5">Tap to view breakdown</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center justify-center min-w-[42px] h-7 px-2 rounded-lg text-xs font-bold ${gradePill(transmutedGrade)} tabular-nums`}>
+                          {transmutedGrade}
+                        </span>
+                        <ChevronRight size={14} className="text-gray-300" />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
               {students.length === 0 && (
                 <div className="py-16 text-center text-gray-300">
                   <Users size={36} className="mx-auto mb-2" /><p className="text-sm font-bold">No students</p>
                 </div>
               )}
-            </div>
+            </>
           )}
 
           {/* COMPONENT TAB (Written / Performance / Quarterly) */}
           {gradingTab !== 'summary' && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+            <>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-gray-50/80">
                     {/* Checkbox header — only on component tabs when not locked */}
@@ -1164,7 +1215,34 @@ export const TeacherPortal: React.FC = () => {
                     );
                   })}
                 </tbody>
-              </table>
+                </table>
+              </div>
+
+              <div className="md:hidden divide-y divide-gray-100">
+                {sortedGrades.map(({ student, breakdown }) => {
+                  const bd = breakdown[gradingTab] || { avgPS: 0, weighted: 0 };
+                  return (
+                    <button
+                      key={student.id}
+                      type="button"
+                      onClick={() => openMobileStudentDetail(student.id, 'grading')}
+                      className="w-full text-left px-4 py-3 active:bg-[#185C20]/[0.03]"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-700 truncate">{student.name}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">Avg {bd.avgPS.toFixed(1)}%</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[#185C20] tabular-nums">{bd.weighted.toFixed(2)}</span>
+                          <ChevronRight size={14} className="text-gray-300" />
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
               {tabActivities.length === 0 && !editMode && (
                 <div className="py-12 text-center text-gray-300">
                   <Plus size={28} className="mx-auto mb-2" />
@@ -1179,7 +1257,7 @@ export const TeacherPortal: React.FC = () => {
                   <button onClick={() => setShowAddActivity(true)} className="mt-2 text-xs font-bold text-[#185C20] hover:underline">+ Add your first activity</button>
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -1230,7 +1308,7 @@ export const TeacherPortal: React.FC = () => {
         </AnimatePresence>
 
         {/* Student table */}
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-50/80 border-b border-gray-100">
@@ -1275,6 +1353,35 @@ export const TeacherPortal: React.FC = () => {
               })}
             </tbody>
           </table>
+        </div>
+
+        <div className="md:hidden divide-y divide-gray-100">
+          {students.sort((a, b) => a.name.localeCompare(b.name)).map((student) => {
+            const computed = computedGrades.find(g => g.student.id === student.id);
+            return (
+              <button
+                key={student.id}
+                type="button"
+                onClick={() => openMobileStudentDetail(student.id, 'students')}
+                className="w-full text-left px-4 py-3 active:bg-[#185C20]/[0.03]"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-700 truncate">{student.name}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{student.id} • {student.yearLevel}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {computed && (
+                      <span className={`inline-flex items-center justify-center min-w-[42px] h-7 px-2 rounded-lg text-xs font-bold ${gradePill(computed.transmutedGrade)} tabular-nums`}>
+                        {computed.transmutedGrade}
+                      </span>
+                    )}
+                    <ChevronRight size={14} className="text-gray-300" />
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -2494,6 +2601,153 @@ export const TeacherPortal: React.FC = () => {
             </motion.div>
           </AnimatePresence>
         </main>
+
+        <AnimatePresence>
+          {mobileDetailEntry && (
+            <>
+              <motion.button
+                type="button"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setMobileDetailStudentId(null)}
+                className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+              />
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 30, stiffness: 360 }}
+                className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-[28px] shadow-2xl md:hidden max-h-[85dvh] overflow-y-auto"
+              >
+                <div className="p-2 flex justify-center">
+                  <div className="w-10 h-1 bg-gray-200 rounded-full" />
+                </div>
+                <div className="px-4 pb-3 border-b border-gray-100 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-800 truncate">{mobileDetailEntry.student.name}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {mobileDetailSource === 'students' ? 'Student details' : gradingTab === 'summary' ? 'Grade summary' : 'Activity scores'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMobileDetailStudentId(null)}
+                    className="w-10 h-10 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex items-center justify-center"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="px-4 py-4 space-y-4">
+                  {mobileDetailSource === 'students' && (
+                    <>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="rounded-xl border border-gray-100 p-3">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Student ID</p>
+                          <p className="text-xs font-semibold text-gray-700 mt-1 break-all">{mobileDetailEntry.student.id}</p>
+                        </div>
+                        <div className="rounded-xl border border-gray-100 p-3">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Gender • Level</p>
+                          <p className="text-xs font-semibold text-gray-700 mt-1">{mobileDetailEntry.student.gender} • {mobileDetailEntry.student.yearLevel}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <div className="rounded-xl bg-gray-50 p-3 text-center">
+                          <p className="text-[10px] text-gray-400">WW</p>
+                          <p className="text-sm font-bold text-gray-700 tabular-nums mt-1">{mobileDetailEntry.breakdown.written.weighted.toFixed(1)}</p>
+                        </div>
+                        <div className="rounded-xl bg-gray-50 p-3 text-center">
+                          <p className="text-[10px] text-gray-400">PT</p>
+                          <p className="text-sm font-bold text-gray-700 tabular-nums mt-1">{mobileDetailEntry.breakdown.performance.weighted.toFixed(1)}</p>
+                        </div>
+                        <div className="rounded-xl bg-gray-50 p-3 text-center">
+                          <p className="text-[10px] text-gray-400">QA</p>
+                          <p className="text-sm font-bold text-gray-700 tabular-nums mt-1">{mobileDetailEntry.breakdown.quarterly.weighted.toFixed(1)}</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {mobileDetailSource === 'grading' && gradingTab === 'summary' && (
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="rounded-xl bg-gray-50 p-3 text-center">
+                        <p className="text-[10px] text-gray-400">WW</p>
+                        <p className="text-sm font-bold text-gray-700 tabular-nums mt-1">{mobileDetailEntry.breakdown.written.weighted.toFixed(1)}</p>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 p-3 text-center">
+                        <p className="text-[10px] text-gray-400">PT</p>
+                        <p className="text-sm font-bold text-gray-700 tabular-nums mt-1">{mobileDetailEntry.breakdown.performance.weighted.toFixed(1)}</p>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 p-3 text-center">
+                        <p className="text-[10px] text-gray-400">QA</p>
+                        <p className="text-sm font-bold text-gray-700 tabular-nums mt-1">{mobileDetailEntry.breakdown.quarterly.weighted.toFixed(1)}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {mobileDetailSource === 'grading' && gradingTab !== 'summary' && (
+                    <div className="space-y-2.5">
+                      {detailTabActivities.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
+                          No activities available for this tab.
+                        </div>
+                      ) : (
+                        detailTabActivities.map((activity) => {
+                          const currentScore = grades.find(
+                            (grade) => grade.studentId === mobileDetailEntry.student.id && grade.activityId === activity.id,
+                          )?.score;
+                          return (
+                            <div key={activity.id} className="rounded-xl border border-gray-100 p-3 flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-gray-700 truncate">{activity.title}</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5">Max score: {activity.maxScore}</p>
+                              </div>
+                              <input
+                                type="number"
+                                min={0}
+                                max={activity.maxScore}
+                                value={currentScore ?? ''}
+                                onChange={(event) => {
+                                  const value = event.target.value === '' ? null : Math.min(Number(event.target.value), activity.maxScore);
+                                  updateGrade(mobileDetailEntry.student.id, activity.id, value);
+                                }}
+                                disabled={isCurrentQuarterLocked}
+                                className="w-20 h-9 text-center text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="rounded-xl border border-gray-100 p-3 text-center">
+                      <p className="text-[10px] text-gray-400">Initial Grade</p>
+                      <p className="text-base font-bold text-gray-700 tabular-nums mt-1">{mobileDetailEntry.initialGrade.toFixed(1)}</p>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 p-3 text-center">
+                      <p className="text-[10px] text-gray-400">Final Grade</p>
+                      <span className={`inline-flex items-center justify-center min-w-[48px] h-8 px-2 mt-1 rounded-lg text-sm font-bold ${gradePill(mobileDetailEntry.transmutedGrade)} tabular-nums`}>
+                        {mobileDetailEntry.transmutedGrade}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isCurrentQuarterLocked && mobileDetailSource === 'grading' && gradingTab !== 'summary' && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      This quarter is locked. Scores are read-only.
+                    </p>
+                  )}
+                </div>
+
+                <div className="pb-[max(0.5rem,env(safe-area-inset-bottom))]" />
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── Bottom nav (mobile/tablet) ── */}

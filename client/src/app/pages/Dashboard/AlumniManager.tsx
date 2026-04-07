@@ -64,11 +64,11 @@ const ModalShell: React.FC<{
   children: React.ReactNode;
 }> = ({ title, subtitle, onClose, children }) => {
   return (
-    <div className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-4" onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white border border-[#185C20]/10 shadow-2xl"
+        className="w-full max-w-[calc(100vw-1.5rem)] sm:max-w-3xl max-h-[92dvh] overflow-y-auto rounded-2xl bg-white border border-[#185C20]/10 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#185C20]/10">
@@ -79,7 +79,7 @@ const ModalShell: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-[#185C20]/5 text-[#185C20]/50 hover:text-[#185C20] transition-colors flex items-center justify-center"
+            className="w-10 h-10 md:w-8 md:h-8 rounded-lg hover:bg-[#185C20]/5 text-[#185C20]/50 hover:text-[#185C20] transition-colors flex items-center justify-center"
           >
             <X size={16} />
           </button>
@@ -452,7 +452,11 @@ export const AlumniManager: React.FC<Props> = ({ showNotification }) => {
         <div className="md:hidden divide-y divide-[#185C20]/5">
           {paginatedAlumni.map((profile) => (
             <div key={profile.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => openStoryPreview(profile)}
+                className="w-full text-left"
+              >
                 <div className="flex items-start gap-3 min-w-0">
                   <img src={profile.img} alt={profile.name} className="w-12 h-12 rounded-lg object-cover border border-[#185C20]/10" />
                   <div className="min-w-0">
@@ -461,6 +465,11 @@ export const AlumniManager: React.FC<Props> = ({ showNotification }) => {
                     <p className="text-xs text-[#185C20]/55 mt-0.5 line-clamp-1">{profile.role}</p>
                   </div>
                 </div>
+                <div className="mt-3">
+                  <span className="px-2 py-0.5 bg-[#EDCD1F]/20 rounded text-xs text-[#185C20]">{profile.field}</span>
+                </div>
+              </button>
+              <div className="flex justify-end gap-1 mt-3">
                 <div className="flex gap-1">
                   <button
                     onClick={() => openStoryPreview(profile)}
@@ -481,9 +490,6 @@ export const AlumniManager: React.FC<Props> = ({ showNotification }) => {
                     <Trash2 size={15} />
                   </button>
                 </div>
-              </div>
-              <div className="mt-3">
-                <span className="px-2 py-0.5 bg-[#EDCD1F]/20 rounded text-xs text-[#185C20]">{profile.field}</span>
               </div>
             </div>
           ))}

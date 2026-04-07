@@ -85,11 +85,11 @@ const ModalShell: React.FC<{
   children: React.ReactNode;
 }> = ({ title, subtitle, onClose, children }) => {
   return (
-    <div className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-4" onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white border border-[#185C20]/10 shadow-2xl"
+        className="w-full max-w-[calc(100vw-1.5rem)] sm:max-w-3xl max-h-[92dvh] overflow-y-auto rounded-2xl bg-white border border-[#185C20]/10 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#185C20]/10">
@@ -100,7 +100,7 @@ const ModalShell: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-[#185C20]/5 text-[#185C20]/50 hover:text-[#185C20] transition-colors flex items-center justify-center"
+            className="w-10 h-10 md:w-8 md:h-8 rounded-lg hover:bg-[#185C20]/5 text-[#185C20]/50 hover:text-[#185C20] transition-colors flex items-center justify-center"
           >
             <X size={16} />
           </button>
@@ -483,11 +483,23 @@ export const FacultyManager: React.FC<Props> = ({ showNotification }) => {
         <div className="md:hidden divide-y divide-[#185C20]/5">
           {paginatedStaff.map((member) => (
             <div key={member.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => openProfilePreview(member)}
+                className="w-full text-left"
+              >
                 <div className="min-w-0">
                   <h4 className="font-bold text-[#185C20] text-sm truncate">{member.name}</h4>
                   <p className="text-xs text-[#185C20]/60 mt-0.5">{member.role}</p>
                 </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <span className="px-2 py-0.5 bg-[#185C20]/5 rounded text-xs text-[#185C20]/70">{member.department}</span>
+                  <span className="px-2 py-0.5 bg-[#EDCD1F]/15 rounded text-xs text-[#185C20]">
+                    {calculateYearsAtMmpns(member.startedAtMmpns, member.yearsAtMmpns)} years
+                  </span>
+                </div>
+              </button>
+              <div className="flex justify-end gap-1 mt-3">
                 <div className="flex gap-1">
                   <button
                     onClick={() => openProfilePreview(member)}
@@ -508,12 +520,6 @@ export const FacultyManager: React.FC<Props> = ({ showNotification }) => {
                     <Trash2 size={15} />
                   </button>
                 </div>
-              </div>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <span className="px-2 py-0.5 bg-[#185C20]/5 rounded text-xs text-[#185C20]/70">{member.department}</span>
-                <span className="px-2 py-0.5 bg-[#EDCD1F]/15 rounded text-xs text-[#185C20]">
-                  {calculateYearsAtMmpns(member.startedAtMmpns, member.yearsAtMmpns)} years
-                </span>
               </div>
             </div>
           ))}

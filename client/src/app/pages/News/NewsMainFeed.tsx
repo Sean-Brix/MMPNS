@@ -57,12 +57,15 @@ const normalizeCachedPages = (pages: any[]): CachedPage[] => {
 };
 
 // Facebook Graph API Configuration
-const FB_ACCESS_TOKEN = "EAAW5ZBzP4RD0BQ4kFvbfb8bpwu1DGiReb7hjhAeErlSCWZCZB28Hab23yhk3CZBLVV6YQRQgB1SEXnbcTrJ1zfB9p2USO3zO7gf1REZCBs6UpRaSOn48Nob7K0GZC7yvEQkz05hUczWbz2QnnCW1YVZChk4MzVkd89QbZBnEgo9m23krusaYL6jmQB9Y5yXY0ANnAwWSlqFmq401sACepJHqabfT1SaqjGFZCt6g4SxQZD";
-const PAGE_ID = "441612072362122";
+const FB_ACCESS_TOKEN = (import.meta.env.VITE_FB_PAGE_ACCESS_TOKEN || '').trim();
+const PAGE_ID = (import.meta.env.VITE_FB_PAGE_ID || '441612072362122').trim();
 
 const INITIAL_API_URL = FB_ACCESS_TOKEN
   ? `https://graph.facebook.com/v25.0/${PAGE_ID}/posts?fields=id,message,created_time,attachments{media_type,media,url,subattachments{media_type,media,url}}&limit=${POSTS_PER_PAGE}&access_token=${FB_ACCESS_TOKEN}`
   : null;
+
+const isTokenError = (message: string) =>
+  /validating access token|session is invalid|oauth|logged out|expired/i.test(message);
 
 const extractMediaItems = (attachments: any): MediaItem[] => {
   const media: MediaItem[] = [];
@@ -256,6 +259,7 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tokenInvalid, setTokenInvalid] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const feedTopRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -317,6 +321,10 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
     const response = await fetch(url);
     const json = await response.json();
 
+    if (!response.ok) {
+      throw new Error(json?.error?.message || `Facebook API request failed (${response.status})`);
+    }
+
     if (json.error) {
       throw new Error(json.error.message);
     }
@@ -345,7 +353,7 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
         }
 
         if (!INITIAL_API_URL) {
-          throw new Error("Facebook Access Token is missing. Using fallback data.");
+          throw new Error('Facebook page token is not configured.');
         }
 
         const { items, nextUrl } = await fetchPage(INITIAL_API_URL);
@@ -355,6 +363,11 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
         savePagesToCache([newPage]);
         console.log("[MMPNS Gazette] Successfully synced first page with Facebook.");
       } catch (err: any) {
+        const errorMessage = String(err?.message || 'Unknown Facebook API error');
+        const hasTokenError = isTokenError(errorMessage);
+        if (hasTokenError) {
+          setTokenInvalid(true);
+        }
         console.error("[MMPNS Gazette] API Error:", err);
 
         // Try stale cache
@@ -365,7 +378,11 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
             if (stale.pages.length > 0) {
               console.log("[MMPNS Gazette] API failed. Serving stale cached pages.");
               setPages(normalizeCachedPages(stale.pages));
-              setError("Using cached posts. Facebook connection temporarily unavailable.");
+              setError(
+                hasTokenError
+                  ? 'Facebook session token is invalid. Using cached posts for now.'
+                  : 'Using cached posts. Facebook connection temporarily unavailable.',
+              );
               setLoading(false);
               return;
             }
@@ -373,7 +390,11 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
         } catch {}
 
         console.log("[MMPNS Gazette] API failed and no cache. Serving sample content.");
-        setError("Unable to load latest Facebook posts. Showing sample content.");
+        setError(
+          hasTokenError
+            ? 'Facebook session token is invalid. Showing sample posts until token is updated.'
+            : 'Unable to load latest Facebook posts. Showing sample content.',
+        );
         const fallbackPage: CachedPage = { items: FALLBACK_DATA, nextUrl: null, timestamp: Date.now() };
         setPages([fallbackPage]);
         setHasMore(false);
@@ -396,7 +417,7 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
 
     // Need to fetch from API
     const currentPage = pages[currentPageIndex];
-    if (!currentPage?.nextUrl) return;
+    if (!currentPage?.nextUrl || tokenInvalid) return;
 
     try {
       setLoadingMore(true);
@@ -411,11 +432,18 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
       console.log(`[MMPNS Gazette] Loaded page ${updatedPages.length}. ${nextUrl ? 'More available.' : 'No more pages.'}`);
     } catch (err: any) {
       console.error("[MMPNS Gazette] Pagination Error:", err);
-      setError("Failed to load more posts. Please try again.");
+      const errorMessage = String(err?.message || 'Unknown Facebook API error');
+      if (isTokenError(errorMessage)) {
+        setTokenInvalid(true);
+        setHasMore(false);
+        setError('Facebook session token is invalid. Pagination is temporarily disabled.');
+      } else {
+        setError("Failed to load more posts. Please try again.");
+      }
     } finally {
       setLoadingMore(false);
     }
-  }, [currentPageIndex, pages, fetchPage, savePagesToCache]);
+  }, [currentPageIndex, pages, fetchPage, savePagesToCache, tokenInvalid]);
 
   // Go to previous page
   const loadPrevPage = useCallback(() => {
