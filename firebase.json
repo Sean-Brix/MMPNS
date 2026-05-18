@@ -14,9 +14,14 @@
       "port": 4000
     }
   },
-  "storage": {
-    "rules": "storage.rules"
+  "firestore": {
+    "rules": "firestore.rules"
   },
+  "storage": [
+    {
+      "rules": "storage.rules"
+    }
+  ],
   "hosting": {
     "public": "./client/dist",
     "ignore": [

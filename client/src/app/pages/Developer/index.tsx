@@ -77,6 +77,8 @@ interface ConfirmState {
 
 const ALLOWED_ROLES = new Set(['admin', 'superadmin']);
 
+const FACEBOOK_TOKEN_STORAGE_KEY = 'mmpns_fb_page_access_token';
+
 const getStatusStyles = (type: BannerType) => {
   if (type === 'success') {
     return 'bg-green-50 text-green-700 border-green-200';
@@ -222,12 +224,28 @@ export const Developer: React.FC = () => {
   const [settingsPassword, setSettingsPassword] = useState('');
   const [settingsPasswordConfirm, setSettingsPasswordConfirm] = useState('');
 
+  const [facebookAccessToken, setFacebookAccessToken] = useState('');
+  const [facebookTokenSaved, setFacebookTokenSaved] = useState(false);
+
   const [usersCount, setUsersCount] = useState(0);
   const [alumniCount, setAlumniCount] = useState(0);
   const [eventsCount, setEventsCount] = useState(0);
   const [facultyCount, setFacultyCount] = useState(0);
   const [departmentsCount, setDepartmentsCount] = useState(0);
   const [schoolYearsCount, setSchoolYearsCount] = useState(0);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    try {
+      const storedToken = (localStorage.getItem(FACEBOOK_TOKEN_STORAGE_KEY) || '').trim();
+      setFacebookTokenSaved(Boolean(storedToken));
+    } catch {
+      setFacebookTokenSaved(false);
+    }
+  }, [isAuthenticated]);
 
   const showBanner = (type: BannerType, message: string) => {
     setBannerType(type);
@@ -624,6 +642,24 @@ export const Developer: React.FC = () => {
     refreshCounts();
   };
 
+  const saveFacebookAccessToken = () => {
+    const nextToken = facebookAccessToken.trim();
+    if (!nextToken) {
+      showBanner('error', 'Facebook access token is required.');
+      return;
+    }
+
+    try {
+      localStorage.setItem(FACEBOOK_TOKEN_STORAGE_KEY, nextToken);
+      setFacebookAccessToken('');
+      setFacebookTokenSaved(true);
+      showBanner('success', 'Facebook access token saved. Refresh News & Updates to apply.');
+    } catch (error) {
+      console.error('Failed to persist Facebook token:', error);
+      showBanner('error', 'Unable to save token in this browser.');
+    }
+  };
+
   const menuItems = [
     { id: 'seeding' as DeveloperTab, label: 'Seeding', icon: Database },
     { id: 'settings' as DeveloperTab, label: 'Settings', icon: Settings },
@@ -961,6 +997,38 @@ export const Developer: React.FC = () => {
                     >
                       <LogOut size={14} />
                       Sign out
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-[#185C20]/10 p-5 space-y-4">
+                  <h3 className="text-lg font-bold text-[#185C20]">News & Updates Facebook Token</h3>
+                  <p className="text-sm text-[#185C20]/60">
+                    Paste a Facebook Page access token used by the News & Updates feed. This is saved locally in this browser.
+                  </p>
+
+                  <div>
+                    <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Access Token</label>
+                    <input
+                      type="password"
+                      value={facebookAccessToken}
+                      onChange={(event) => setFacebookAccessToken(event.target.value)}
+                      className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      placeholder="Paste token here"
+                    />
+                    <p className="text-xs text-[#185C20]/50 mt-2">
+                      Status: {facebookTokenSaved ? 'Token is set' : 'No token saved'}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={saveFacebookAccessToken}
+                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#185C20] text-white text-sm font-semibold hover:bg-[#144a1a]"
+                    >
+                      <Save size={14} />
+                      Save token
                     </button>
                   </div>
                 </div>

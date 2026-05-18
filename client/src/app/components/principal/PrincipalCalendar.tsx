@@ -5,6 +5,12 @@ import {
   Users, Clock, MapPin, Bell, Trash2, Save, Tag, AlertTriangle
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameDay, isSameMonth, isToday, getDay } from 'date-fns';
+import {
+  getCalendarAssignmentLabel,
+  getCalendarTeachers,
+  loadSchoolCalendarEventsOnline,
+  saveSchoolCalendarEvents,
+} from '../../../utils/schoolCalendar';
 
 /* ═══════════════════ Types ═══════════════════ */
 export interface CalendarEvent {
@@ -64,6 +70,7 @@ const Modal: React.FC<{ open: boolean; onClose: () => void; children: React.Reac
 );
 
 export const PrincipalCalendar: React.FC = () => {
+  const teachers = useMemo(() => getCalendarTeachers(), []);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [currentMonth, setCurrentMonth] = useState(new Date(2026, 2, 1));
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -81,8 +88,18 @@ export const PrincipalCalendar: React.FC = () => {
   const [formTeachers, setFormTeachers] = useState<string[]>([]);
   const [formPriority, setFormPriority] = useState<'low' | 'medium' | 'high'>('medium');
 
-  useEffect(() => { const saved = localStorage.getItem(STORAGE_KEY); setEvents(saved ? JSON.parse(saved) : DEFAULT_EVENTS); }, []);
-  const save = (updated: CalendarEvent[]) => { setEvents(updated); localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); };
+  useEffect(() => {
+    let isCancelled = false;
+    loadSchoolCalendarEventsOnline().then((calendarEvents) => {
+      if (!isCancelled) {
+        setEvents(calendarEvents);
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+  const save = (updated: CalendarEvent[]) => { setEvents(updated); saveSchoolCalendarEvents(updated); };
 
   const daysInMonth = useMemo(() => eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) }), [currentMonth]);
   const startPadding = getDay(startOfMonth(currentMonth));
@@ -120,10 +137,7 @@ export const PrincipalCalendar: React.FC = () => {
   const upcomingEvents = [...events].filter(e => new Date(e.date) >= new Date('2026-03-11')).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10);
 
   const getAssignLabel = (assignedTo: CalendarEvent['assignedTo']) => {
-    if (assignedTo === 'all') return 'Everyone';
-    if (assignedTo === 'teachers') return 'All Teachers';
-    if (Array.isArray(assignedTo)) return assignedTo.map(u => TEACHERS.find(t => t.username === u)?.name || u).join(', ');
-    return '';
+    return getCalendarAssignmentLabel(assignedTo, teachers);
   };
 
   return (
@@ -437,7 +451,7 @@ export const PrincipalCalendar: React.FC = () => {
                 </div>
                 {formAssignTo === 'specific' && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-3 border-t border-gray-100">
-                    {TEACHERS.map(t => (
+                    {teachers.map(t => (
                       <button key={t.username} onClick={() => setFormTeachers(prev => prev.includes(t.username) ? prev.filter(x => x !== t.username) : [...prev, t.username])}
                         className={`flex items-center gap-2.5 p-2 border transition-all text-left ${formTeachers.includes(t.username) ? 'bg-[#EDCD1F]/10 border-[#EDCD1F] shadow-inner' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
                         <div className={`w-4 h-4 rounded flex items-center justify-center border flex-shrink-0 transition-colors ${formTeachers.includes(t.username) ? 'bg-[#185C20] border-[#185C20] text-white' : 'bg-white border-gray-300'}`}>

@@ -319,6 +319,7 @@ const ADMIN_SESSION_KEY = 'adminAuth';
 export const saveTeacherSession = (teacher: TeacherCredential) => {
   const sessionData = {
     id: teacher.id,
+    username: teacher.username,
     displayName: teacher.displayName,
     initials: teacher.initials,
     department: teacher.department,

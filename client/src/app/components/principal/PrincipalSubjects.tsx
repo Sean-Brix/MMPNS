@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, X, Check, Pencil, Percent
 } from 'lucide-react';
+import { readDatabase, writeDatabase } from '../../../utils/database';
 
 /* ═══════════════════ Types ═══════════════════ */
 export interface MasterSubject {
@@ -15,8 +16,6 @@ export interface MasterSubject {
     quarterlyAssessment: number;
   };
 }
-
-export const SUBJECTS_STORAGE_KEY = 'mmpns_master_subjects';
 
 export const DEFAULT_SUBJECTS: MasterSubject[] = [
   { id: 'math', name: 'Mathematics', type: 'major', weights: { writtenWork: 30, performanceTask: 50, quarterlyAssessment: 20 } },
@@ -31,8 +30,13 @@ export const DEFAULT_SUBJECTS: MasterSubject[] = [
 ];
 
 export function loadMasterSubjects(): MasterSubject[] {
-  const saved = localStorage.getItem(SUBJECTS_STORAGE_KEY);
-  return saved ? JSON.parse(saved) : DEFAULT_SUBJECTS;
+  const stored = readDatabase<{ subjects: MasterSubject[] }>('master_subjects');
+  if (stored?.subjects && stored.subjects.length > 0) return stored.subjects;
+  return DEFAULT_SUBJECTS;
+}
+
+function saveMasterSubjects(subjects: MasterSubject[]): void {
+  writeDatabase('master_subjects', { subjects });
 }
 
 /* ═══════════════════ Modal Shell ═══════════════════ */
@@ -70,7 +74,7 @@ export const PrincipalSubjects: React.FC = () => {
 
   const save = (data: MasterSubject[]) => {
     setSubjects(data);
-    localStorage.setItem(SUBJECTS_STORAGE_KEY, JSON.stringify(data));
+    saveMasterSubjects(data);
   };
 
   const weightTotal = formWW + formPT + formQA;

@@ -16,7 +16,11 @@ export type CloudDatabaseTable =
   | 'settings'
   | 'credentials'
   | 'school_years'
-  | 'teacher_portal';
+  | 'teacher_portal'
+  | 'calendar'
+  | 'teacher_records'
+  | 'master_subjects'
+  | 'student_registrations';
 
 const CLOUD_TABLE_COLLECTION = 'app_data';
 const CLOUD_SCHEMA_VERSION = 1;

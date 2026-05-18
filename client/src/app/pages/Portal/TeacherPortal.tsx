@@ -7,7 +7,7 @@ import {
   Calculator, FileSpreadsheet, Settings, ClipboardList, ArrowUpDown,
   Search, X, ChevronDown, Layers, Award, LayoutGrid, Sparkles,
   Pencil, PencilOff, Check, SquareCheck, Square, MinusSquare,
-  Shield, School, Calendar, UserCheck, Star, Target, Trophy, Clock, RefreshCw, ImagePlus
+  Shield, School, Calendar, UserCheck, Star, Target, Trophy, Clock, RefreshCw, ImagePlus, Tag, MapPin
 } from 'lucide-react';
 import {
   authenticateTeacherOnline,
@@ -18,6 +18,24 @@ import {
 } from '../../../utils/auth';
 import { initializeDatabase, readDatabaseOnline, writeDatabaseOnline } from '../../../utils/database';
 import { HOME_IMAGE_EDIT_MODE_KEY } from '../../../utils/homeImageSlots';
+import {
+  EVENT_TYPES,
+  getCalendarAssignmentLabel,
+  getCalendarEventType,
+  getCalendarTeachers,
+  isCalendarEventAssignedToTeacher,
+  sortCalendarEvents,
+  subscribeSchoolCalendarEvents,
+  type CalendarEvent,
+} from '../../../utils/schoolCalendar';
+import {
+  computeEvaluationOverall,
+  getEvaluationRating,
+  getEvaluationTeachers,
+  loadEvaluationRubrics,
+  loadTeacherEvaluations,
+  resolveEvaluationTeacherUsername,
+} from '../../../utils/teacherEvaluations';
 import { PrincipalSubjects } from '../../components/principal/PrincipalSubjects';
 import { PrincipalEvaluation } from '../../components/principal/PrincipalEvaluation';
 import { PrincipalCalendar } from '../../components/principal/PrincipalCalendar';
@@ -307,7 +325,7 @@ export const TeacherPortal: React.FC = () => {
   const [isInstalledAppContext, setIsInstalledAppContext] = useState(isStandaloneDisplayMode());
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installHint, setInstallHint] = useState('');
-  const [teacherInfo, setTeacherInfo] = useState<{ displayName: string; initials: string; department: string; position: string } | null>(null);
+  const [teacherInfo, setTeacherInfo] = useState<{ username?: string; displayName: string; initials: string; department: string; position: string; employeeId?: string } | null>(null);
   const [showDemoAccounts, setShowDemoAccounts] = useState(false);
   const [homeImageEditModeEnabled, setHomeImageEditModeEnabled] = useState(false);
   const onboardingTouchStartX = useRef<number | null>(null);
@@ -346,6 +364,7 @@ export const TeacherPortal: React.FC = () => {
   const [mobileDetailStudentId, setMobileDetailStudentId] = useState<string | null>(null);
   const [mobileDetailSource, setMobileDetailSource] = useState<'grading' | 'students'>('grading');
   const teacherPortalStoreRef = useRef<TeacherPortalStore>(EMPTY_TEACHER_PORTAL_STORE);
+  const [teacherCalendarEvents, setTeacherCalendarEvents] = useState<CalendarEvent[]>([]);
 
   // ── Init ──
   useEffect(() => {
@@ -365,7 +384,14 @@ export const TeacherPortal: React.FC = () => {
       }
 
       setIsAuthenticated(true);
-      setTeacherInfo({ displayName: session.displayName, initials: session.initials, department: session.department, position: session.position || '' });
+      setTeacherInfo({
+        username: session.username,
+        displayName: session.displayName,
+        initials: session.initials,
+        department: session.department,
+        position: session.position || '',
+        employeeId: session.employeeId,
+      });
       setIsPortalLoading(true);
       window.setTimeout(() => {
         if (isCancelled) {
@@ -452,6 +478,14 @@ export const TeacherPortal: React.FC = () => {
       document.documentElement.style.overflow = previousHtmlOverflow;
       document.body.style.overflow = previousBodyOverflow;
     };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    return subscribeSchoolCalendarEvents(setTeacherCalendarEvents);
   }, [isAuthenticated]);
 
   const completeOnboarding = () => {
@@ -667,7 +701,14 @@ export const TeacherPortal: React.FC = () => {
 
       setIsPortalLoading(true);
       setIsAuthenticated(true);
-      setTeacherInfo({ displayName: result.teacher.displayName, initials: result.teacher.initials, department: result.teacher.department, position: result.teacher.position });
+      setTeacherInfo({
+        username: result.teacher.username,
+        displayName: result.teacher.displayName,
+        initials: result.teacher.initials,
+        department: result.teacher.department,
+        position: result.teacher.position,
+        employeeId: result.teacher.employeeId,
+      });
       window.setTimeout(() => {
         setIsPortalLoading(false);
       }, 700);
@@ -872,7 +913,9 @@ export const TeacherPortal: React.FC = () => {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
     { id: 'grading', label: 'Grade Book', icon: Calculator },
     { id: 'students', label: 'Students', icon: Users },
+    { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'evaluation', label: 'Evaluation', icon: ClipboardList },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
   const bottomNavItems = isPrincipal ? [
@@ -897,7 +940,11 @@ export const TeacherPortal: React.FC = () => {
     { id: 'settings', label: 'School Settings', icon: Settings },
   ] : isAdminRole ? [
     { id: 'settings', label: 'Portal Settings', icon: Settings },
-  ] : [{ id: 'settings', label: 'Quarter Settings', icon: Settings }];
+  ] : [
+    { id: 'calendar', label: 'My Calendar', icon: Calendar },
+    { id: 'evaluation', label: 'My Evaluation', icon: ClipboardList },
+    { id: 'settings', label: 'Quarter Settings', icon: Settings },
+  ];
   const isInMoreMenu = moreMenuItems.some(item => item.id === activeSection);
 
   if (isBootLoading || isSigningIn || (isAuthenticated && isPortalLoading)) {
@@ -2006,6 +2053,383 @@ export const TeacherPortal: React.FC = () => {
   };
 
   /* ═══════════════════════════════════════════════════════
+     SECTION: EVALUATION
+     ═══════════════════════════════════════════════════════ */
+  const renderTeacherCalendar = () => {
+    const calendarTeachers = getCalendarTeachers();
+    const session = getTeacherSession();
+    const currentTeacherUsername = resolveEvaluationTeacherUsername({
+      username: session?.username || teacherInfo?.username,
+      displayName: session?.displayName || teacherInfo?.displayName,
+      employeeId: session?.employeeId || teacherInfo?.employeeId,
+    }, calendarTeachers);
+    const teacherRecord = calendarTeachers.find((teacher) => teacher.username === currentTeacherUsername);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const parseEventDate = (date: string) => new Date(`${date}T00:00:00`);
+    const formatEventDate = (event: CalendarEvent) => {
+      const start = parseEventDate(event.date);
+      const startLabel = start.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
+      if (!event.endDate) return startLabel;
+      const end = parseEventDate(event.endDate);
+      return `${startLabel} - ${end.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    };
+    const myEvents = sortCalendarEvents(
+      teacherCalendarEvents.filter((event) => isCalendarEventAssignedToTeacher(event, currentTeacherUsername)),
+    );
+    const upcomingEvents = myEvents.filter((event) => parseEventDate(event.date) >= today);
+    const highPriorityEvents = upcomingEvents.filter((event) => event.priority === 'high');
+    const thisMonthEvents = upcomingEvents.filter((event) => {
+      const eventDate = parseEventDate(event.date);
+      return eventDate.getMonth() === today.getMonth() && eventDate.getFullYear() === today.getFullYear();
+    });
+    const groupedEvents = myEvents.reduce<Record<string, CalendarEvent[]>>((groups, event) => {
+      const monthLabel = parseEventDate(event.date).toLocaleDateString('en', { month: 'long', year: 'numeric' });
+      return {
+        ...groups,
+        [monthLabel]: [...(groups[monthLabel] || []), event],
+      };
+    }, {});
+
+    const renderEventCard = (event: CalendarEvent) => {
+      const typeInfo = getCalendarEventType(event.type);
+      const isPast = parseEventDate(event.date) < today;
+      return (
+        <div key={event.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${isPast ? 'border-gray-100 opacity-70' : 'border-gray-100'}`}>
+          <div className="p-4 flex gap-3">
+            <div className="w-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: event.color }} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-gray-800 truncate">{event.title}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {formatEventDate(event)}{event.time ? ` - ${event.time}` : ''}
+                  </p>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${
+                  event.priority === 'high' ? 'bg-red-50 text-red-600 border border-red-100'
+                    : event.priority === 'medium' ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                      : 'bg-gray-50 text-gray-500 border border-gray-200'
+                }`}>
+                  {event.priority}
+                </span>
+              </div>
+
+              {event.description && <p className="text-xs text-gray-600 mt-3 leading-relaxed">{event.description}</p>}
+
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded border" style={{ backgroundColor: typeInfo.color + '10', color: typeInfo.color, borderColor: typeInfo.color + '30' }}>
+                  {typeInfo.label}
+                </span>
+                {event.location && (
+                  <span className="text-[10px] font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-100 flex items-center gap-1">
+                    <MapPin size={10} /> {event.location}
+                  </span>
+                )}
+                <span className="text-[10px] font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-100 flex items-center gap-1">
+                  <Users size={10} /> {getCalendarAssignmentLabel(event.assignedTo, calendarTeachers)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="relative bg-[#185C20] p-5 lg:p-6 text-white overflow-hidden">
+            <div className="absolute inset-0 opacity-10">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#EDCD1F] rounded-full -translate-y-1/2 translate-x-1/3" />
+            </div>
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <p className="text-[#EDCD1F] text-[10px] lg:text-xs font-bold uppercase tracking-[0.2em]">My School Calendar</p>
+                <h2 className="text-xl lg:text-2xl font-bold mt-1">{teacherRecord?.name || teacherInfo?.displayName}</h2>
+                <p className="text-white/65 text-xs lg:text-sm mt-1">{teacherRecord?.department || teacherInfo?.department} Department</p>
+              </div>
+              <div className="flex items-center gap-2 bg-white/10 border border-white/15 rounded-xl px-3 py-2">
+                <Bell size={15} className="text-[#EDCD1F]" />
+                <span className="text-xs font-bold">{upcomingEvents.length} upcoming</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
+            {[
+              { value: String(myEvents.length), label: 'Received', icon: Calendar },
+              { value: String(upcomingEvents.length), label: 'Upcoming', icon: Clock },
+              { value: String(highPriorityEvents.length), label: 'High Priority', icon: AlertTriangle },
+              { value: String(thisMonthEvents.length), label: 'This Month', icon: Tag },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.label} className="flex items-center gap-3 px-4 py-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-[#185C20]/8 flex items-center justify-center flex-shrink-0">
+                    <Icon size={16} className="text-[#185C20]" />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-gray-900 tabular-nums">{item.value}</p>
+                    <p className="text-[10px] text-gray-400 -mt-0.5">{item.label}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-4 lg:px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold text-gray-800">Upcoming Events</h3>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Assigned to me</span>
+              </div>
+              <div className="p-4 space-y-3">
+                {upcomingEvents.length > 0 ? (
+                  upcomingEvents.slice(0, 8).map(renderEventCard)
+                ) : (
+                  <div className="py-12 text-center text-gray-300">
+                    <Calendar size={36} className="mx-auto mb-2" />
+                    <p className="text-sm font-bold text-gray-400">No upcoming assigned events</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-4 lg:px-5 py-3 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-800">Full Assigned Schedule</h3>
+              </div>
+              <div className="p-4 space-y-5">
+                {Object.keys(groupedEvents).length > 0 ? Object.entries(groupedEvents).map(([month, events]) => (
+                  <div key={month} className="space-y-2">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{month}</p>
+                    <div className="space-y-2">
+                      {events.map(renderEventCard)}
+                    </div>
+                  </div>
+                )) : (
+                  <div className="py-12 text-center text-gray-300">
+                    <Calendar size={36} className="mx-auto mb-2" />
+                    <p className="text-sm font-bold text-gray-400">No assigned events yet</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <h3 className="text-sm font-bold text-gray-800 mb-3">Event Types</h3>
+              <div className="space-y-2">
+                {EVENT_TYPES.map((type) => {
+                  const count = myEvents.filter((event) => event.type === type.id).length;
+                  return (
+                    <div key={type.id} className="flex items-center gap-3">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: type.color }} />
+                      <span className="flex-1 text-xs font-semibold text-gray-600">{type.label}</span>
+                      <span className="text-[10px] font-bold text-gray-400">{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {highPriorityEvents.length > 0 && (
+              <div className="bg-red-50 rounded-2xl border border-red-100 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle size={15} className="text-red-500" />
+                  <h3 className="text-sm font-bold text-red-700">High Priority</h3>
+                </div>
+                <div className="space-y-2">
+                  {highPriorityEvents.slice(0, 4).map((event) => (
+                    <div key={event.id} className="bg-white rounded-xl border border-red-100 px-3 py-2">
+                      <p className="text-xs font-bold text-gray-800">{event.title}</p>
+                      <p className="text-[10px] text-red-400 mt-0.5">{formatEventDate(event)}{event.time ? ` - ${event.time}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTeacherEvaluation = () => {
+    const rubrics = loadEvaluationRubrics();
+    const evaluations = loadTeacherEvaluations();
+    const roster = getEvaluationTeachers();
+    const session = getTeacherSession();
+    const currentTeacherUsername = resolveEvaluationTeacherUsername({
+      username: session?.username || teacherInfo?.username,
+      displayName: session?.displayName || teacherInfo?.displayName,
+      employeeId: session?.employeeId || teacherInfo?.employeeId,
+    }, roster);
+    const teacherRecord = roster.find((teacher) => teacher.username === currentTeacherUsername);
+    const myEvaluations = [...evaluations]
+      .filter((evaluation) => evaluation.teacherUsername === currentTeacherUsername)
+      .sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
+    const latestEvaluation = myEvaluations[0];
+    const latestRubric = latestEvaluation ? rubrics.find((rubric) => rubric.id === latestEvaluation.rubricId) : undefined;
+    const latestOverall = latestEvaluation ? computeEvaluationOverall(latestEvaluation, latestRubric) : 0;
+    const latestRating = getEvaluationRating(latestOverall);
+    const averageOverall = myEvaluations.length > 0
+      ? myEvaluations.reduce((sum, evaluation) => sum + computeEvaluationOverall(evaluation, rubrics.find((rubric) => rubric.id === evaluation.rubricId)), 0) / myEvaluations.length
+      : 0;
+    const previousOverall = myEvaluations[1]
+      ? computeEvaluationOverall(myEvaluations[1], rubrics.find((rubric) => rubric.id === myEvaluations[1].rubricId))
+      : null;
+    const trendDelta = previousOverall === null ? null : latestOverall - previousOverall;
+    const latestCriterionScores = latestRubric && latestEvaluation
+      ? latestRubric.criteria.map((criterion) => ({
+        criterion,
+        score: latestEvaluation.scores[criterion.id] || 0,
+        pct: ((latestEvaluation.scores[criterion.id] || 0) / criterion.maxScore) * 100,
+      }))
+      : [];
+    const strongestCriterion = [...latestCriterionScores].sort((a, b) => b.pct - a.pct)[0];
+    const focusCriterion = [...latestCriterionScores].sort((a, b) => a.pct - b.pct)[0];
+
+    if (!latestEvaluation || !latestRubric) {
+      return (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-[#185C20]/10 flex items-center justify-center mx-auto mb-4">
+              <ClipboardList size={24} className="text-[#185C20]" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800">No principal evaluation yet</h3>
+            <p className="text-sm text-gray-400 mt-1 max-w-md mx-auto">
+              Once the principal submits an evaluation, your score, comments, and criterion breakdown will appear here.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className={`rounded-2xl border ${latestRating.border} ${latestRating.bg} shadow-sm overflow-hidden`}>
+          <div className="p-5 lg:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] lg:text-xs font-bold text-[#185C20] uppercase tracking-[0.18em]">Principal Evaluation</p>
+              <h2 className="text-xl lg:text-2xl font-bold text-gray-900 mt-1">{teacherRecord?.name || teacherInfo?.displayName}</h2>
+              <p className="text-xs lg:text-sm text-gray-500 mt-1">
+                {latestRubric.name} &middot; Q{latestEvaluation.quarter} &middot; Evaluated by {latestEvaluation.evaluatedBy}
+              </p>
+            </div>
+            <div className="lg:text-right">
+              <p className={`text-5xl font-bold tabular-nums ${latestRating.color}`}>{latestOverall.toFixed(0)}%</p>
+              <p className={`text-sm font-bold ${latestRating.color}`}>{latestRating.label}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Latest Score', value: `${latestOverall.toFixed(0)}%`, icon: Award },
+            { label: 'Average Score', value: `${averageOverall.toFixed(0)}%`, icon: BarChart3 },
+            { label: 'Evaluations', value: String(myEvaluations.length), icon: FileSpreadsheet },
+            { label: 'Change', value: trendDelta === null ? '--' : `${trendDelta >= 0 ? '+' : ''}${trendDelta.toFixed(1)}%`, icon: TrendingUp },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                <Icon size={17} className="text-[#185C20] mb-2" />
+                <p className="text-2xl font-bold text-gray-900 tabular-nums">{item.value}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{item.label}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h3 className="text-sm font-bold text-gray-800">Criteria Breakdown</h3>
+              <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Latest</span>
+            </div>
+            <div className="space-y-3">
+              {latestCriterionScores.map(({ criterion, score, pct }) => (
+                <div key={criterion.id}>
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-700">{criterion.name}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{criterion.description}</p>
+                    </div>
+                    <span className="text-xs font-bold text-gray-600 tabular-nums">{score}/{criterion.maxScore}</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-full rounded-full bg-[#185C20]" style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-3">Principal Comments</h3>
+              <p className="text-sm text-gray-600 leading-relaxed bg-gray-50 rounded-xl p-4">
+                {latestEvaluation.comments || 'No comments recorded for this evaluation.'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-emerald-50 rounded-2xl border border-emerald-100 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 mb-1">Strongest Area</p>
+                <p className="text-sm font-bold text-emerald-800">{strongestCriterion?.criterion.name || '--'}</p>
+              </div>
+              <div className="bg-amber-50 rounded-2xl border border-amber-100 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">Growth Focus</p>
+                <p className="text-sm font-bold text-amber-800">{focusCriterion?.criterion.name || '--'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 lg:px-5 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-bold text-gray-800">My Evaluation History</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50/80 border-b border-gray-100">
+                  <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Date</th>
+                  <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Quarter</th>
+                  <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Score</th>
+                  <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Rating</th>
+                  <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider hidden md:table-cell">Comments</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myEvaluations.map((evaluation) => {
+                  const rubric = rubrics.find((item) => item.id === evaluation.rubricId);
+                  const score = computeEvaluationOverall(evaluation, rubric);
+                  const rating = getEvaluationRating(score);
+                  return (
+                    <tr key={evaluation.id} className="border-b border-gray-50 last:border-b-0">
+                      <td className="py-2.5 px-4 text-gray-500">{evaluation.evaluatedAt}</td>
+                      <td className="py-2.5 px-4 text-center font-semibold text-gray-600">Q{evaluation.quarter}</td>
+                      <td className="py-2.5 px-4 text-center"><span className={`font-bold ${rating.color}`}>{score.toFixed(0)}%</span></td>
+                      <td className="py-2.5 px-4 text-center"><span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${rating.bg} ${rating.color}`}>{rating.label}</span></td>
+                      <td className="py-2.5 px-4 text-gray-500 hidden md:table-cell max-w-[280px] truncate">{evaluation.comments}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /* ═══════════════════════════════════════════════════════
      SECTION: SETTINGS
      ═══════════════════════════════════════════════════════ */
   const renderSettings = () => (
@@ -2945,7 +3369,9 @@ export const TeacherPortal: React.FC = () => {
       case 'dashboard': return renderDashboard();
       case 'grading': return renderGrading();
       case 'students': return renderStudents();
+      case 'calendar': return renderTeacherCalendar();
       case 'analytics': return renderAnalytics();
+      case 'evaluation': return renderTeacherEvaluation();
       case 'settings': return renderSettings();
       default: return renderDashboard();
     }

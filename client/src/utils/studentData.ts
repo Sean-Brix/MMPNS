@@ -9,6 +9,7 @@
 
 import studentJsonData from '../data/seeds/student.json';
 import teacherJsonData from '../data/seeds/teacher.json';
+import { readDatabase, writeDatabase } from './database';
 
 /* ═══════════════════ Types ═══════════════════ */
 
@@ -74,8 +75,6 @@ export interface GradeSectionGroup {
 }
 
 /* ═══════════════════ Constants ═══════════════════ */
-
-const STORAGE_KEY = 'mmpns_registered_students';  // new unified key
 const CURRENT_BATCH = '2025-2026';
 const GRADE_LEVELS = ['Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
 const SECTIONS_MAP: Record<string, string[]> = {
@@ -146,9 +145,8 @@ function loadBaseStudents(): StudentRecord[] {
 
 function loadNewRegistrations(): StudentRecord[] {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return [];
-    return JSON.parse(saved) as StudentRecord[];
+    const stored = readDatabase<{ students: StudentRecord[] }>('student_registrations');
+    return stored?.students ?? [];
   } catch {
     return [];
   }
@@ -217,12 +215,12 @@ export function getStudentsInSection(gradeLevel: string, section: string, batch?
 export function registerStudent(student: StudentRecord): void {
   const existing = loadNewRegistrations();
   existing.push(student);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  writeDatabase('student_registrations', { students: existing });
 }
 
 /** Save the full list of new registrations (for bulk updates) */
 export function saveRegistrations(students: StudentRecord[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+  writeDatabase('student_registrations', { students });
 }
 
 /** Generate the next student ID */

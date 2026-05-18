@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 firebase deploy --only hosting,firestore:rules)",
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 firebase deploy --only firestore:rules,storage)",
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 firebase deploy --only firestore:rules)"
+    ]
+  }
+}

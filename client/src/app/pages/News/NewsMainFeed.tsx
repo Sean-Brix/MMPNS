@@ -41,6 +41,58 @@ const CACHE_KEY = 'mmpns_gazette_pages';
 const OLD_CACHE_KEY = 'mmpns_news_cache'; // legacy key to clean up
 const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
 
+// Facebook Graph API Configuration
+const FB_TOKEN_OVERRIDE_KEY = 'mmpns_fb_page_access_token';
+const FB_ACCESS_TOKEN_ENV = (import.meta.env.VITE_FB_PAGE_ACCESS_TOKEN || '').trim();
+const PAGE_ID = (import.meta.env.VITE_FB_PAGE_ID || '441612072362122').trim();
+const GRAPH_API_VERSION = 'v25.0';
+
+const getFacebookAccessToken = () => {
+  if (typeof window === 'undefined') {
+    return FB_ACCESS_TOKEN_ENV;
+  }
+
+  try {
+    const stored = (localStorage.getItem(FB_TOKEN_OVERRIDE_KEY) || '').trim();
+    return stored || FB_ACCESS_TOKEN_ENV;
+  } catch {
+    return FB_ACCESS_TOKEN_ENV;
+  }
+};
+
+const sanitizeGraphUrl = (url: string | null): string | null => {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete('access_token');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+};
+
+const withAccessToken = (url: string, token: string): string => {
+  if (!token) {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('access_token', token);
+    return parsed.toString();
+  } catch {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+  }
+};
+
+const buildPostsUrl = (pageId: string) => {
+  return `https://graph.facebook.com/${GRAPH_API_VERSION}/${pageId}/posts?fields=id,message,created_time,attachments{media_type,media,url,subattachments{media_type,media,url}}&limit=${POSTS_PER_PAGE}`;
+};
+
 // Normalize a news item to ensure media field always exists (handles stale cache)
 const normalizeNewsItem = (item: any): NewsItem => {
   const media: MediaItem[] = Array.isArray(item.media) && item.media.length > 0
@@ -50,19 +102,12 @@ const normalizeNewsItem = (item: any): NewsItem => {
 };
 
 const normalizeCachedPages = (pages: any[]): CachedPage[] => {
-  return pages.map(page => ({
+  return pages.map((page) => ({
     ...page,
     items: Array.isArray(page.items) ? page.items.map(normalizeNewsItem) : [],
+    nextUrl: sanitizeGraphUrl(page?.nextUrl ?? null),
   }));
 };
-
-// Facebook Graph API Configuration
-const FB_ACCESS_TOKEN = (import.meta.env.VITE_FB_PAGE_ACCESS_TOKEN || '').trim();
-const PAGE_ID = (import.meta.env.VITE_FB_PAGE_ID || '441612072362122').trim();
-
-const INITIAL_API_URL = FB_ACCESS_TOKEN
-  ? `https://graph.facebook.com/v25.0/${PAGE_ID}/posts?fields=id,message,created_time,attachments{media_type,media,url,subattachments{media_type,media,url}}&limit=${POSTS_PER_PAGE}&access_token=${FB_ACCESS_TOKEN}`
-  : null;
 
 const isTokenError = (message: string) =>
   /validating access token|session is invalid|oauth|logged out|expired/i.test(message);
@@ -318,7 +363,12 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
   // Fetch a page from Facebook API
   const fetchPage = useCallback(async (url: string): Promise<{ items: NewsItem[]; nextUrl: string | null }> => {
     console.log(`[MMPNS Gazette] Fetching page from Facebook Graph API...`);
-    const response = await fetch(url);
+    const accessToken = getFacebookAccessToken();
+    if (!accessToken) {
+      throw new Error('Facebook page token is not configured.');
+    }
+
+    const response = await fetch(withAccessToken(url, accessToken));
     const json = await response.json();
 
     if (!response.ok) {
@@ -330,7 +380,7 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
     }
 
     const items: NewsItem[] = (json.data || []).map(formatPost);
-    const nextUrl: string | null = json.paging?.next || null;
+    const nextUrl: string | null = sanitizeGraphUrl(json.paging?.next || null);
 
     return { items, nextUrl };
   }, []);
@@ -352,11 +402,7 @@ export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsC
           return;
         }
 
-        if (!INITIAL_API_URL) {
-          throw new Error('Facebook page token is not configured.');
-        }
-
-        const { items, nextUrl } = await fetchPage(INITIAL_API_URL);
+        const { items, nextUrl } = await fetchPage(buildPostsUrl(PAGE_ID));
         const newPage: CachedPage = { items, nextUrl, timestamp: Date.now() };
         setPages([newPage]);
         setHasMore(nextUrl !== null);

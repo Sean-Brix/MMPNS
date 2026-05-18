@@ -162,8 +162,8 @@ export const NewsSidebar: React.FC<NewsSidebarProps> = ({ filters, onFiltersChan
           </p>
         </div>
 
-        <div className="flex flex-col lg:flex-row lg:items-end gap-3">
-          <div className="relative flex-1 min-w-0 lg:min-w-[220px]">
+        <div className="space-y-3">
+          <div className="relative min-w-0">
             <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">Search</label>
             <Search size={14} className="absolute left-3.5 top-[34px] -translate-y-1/2 text-gray-300" />
             <input
@@ -183,55 +183,57 @@ export const NewsSidebar: React.FC<NewsSidebarProps> = ({ filters, onFiltersChan
             )}
           </div>
 
-          <div className="lg:w-[170px]">
-            <label className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
-              <Calendar size={12} /> Date
-            </label>
-            <select
-              value={filters.dateRange}
-              onChange={(e) => update({ dateRange: e.target.value as NewsFilters['dateRange'] })}
-              className="w-full py-2.5 px-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-semibold text-gray-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#185C20]/20"
-            >
-              {dateRangeOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label} ({opt.count})
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
+                <Calendar size={12} /> Date
+              </label>
+              <select
+                value={filters.dateRange}
+                onChange={(e) => update({ dateRange: e.target.value as NewsFilters['dateRange'] })}
+                className="w-full py-2.5 px-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-semibold text-gray-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#185C20]/20"
+              >
+                {dateRangeOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label} ({opt.count})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="lg:w-[170px]">
-            <label className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
-              <Film size={12} /> Media
-            </label>
-            <select
-              value={filters.mediaType}
-              onChange={(e) => update({ mediaType: e.target.value as NewsFilters['mediaType'] })}
-              className="w-full py-2.5 px-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-semibold text-gray-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#185C20]/20"
-            >
-              {mediaTypeOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label} ({opt.count})
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className="min-w-0">
+              <label className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
+                <Film size={12} /> Media
+              </label>
+              <select
+                value={filters.mediaType}
+                onChange={(e) => update({ mediaType: e.target.value as NewsFilters['mediaType'] })}
+                className="w-full py-2.5 px-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-semibold text-gray-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#185C20]/20"
+              >
+                {mediaTypeOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label} ({opt.count})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="lg:w-[180px]">
-            <label className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
-              <FileText size={12} /> Content
-            </label>
-            <select
-              value={filters.hasMessage}
-              onChange={(e) => update({ hasMessage: e.target.value as NewsFilters['hasMessage'] })}
-              className="w-full py-2.5 px-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-semibold text-gray-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#185C20]/20"
-            >
-              {messageOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label} ({opt.count})
-                </option>
-              ))}
-            </select>
+            <div className="min-w-0 sm:col-span-2">
+              <label className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
+                <FileText size={12} /> Content
+              </label>
+              <select
+                value={filters.hasMessage}
+                onChange={(e) => update({ hasMessage: e.target.value as NewsFilters['hasMessage'] })}
+                className="w-full py-2.5 px-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-semibold text-gray-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#185C20]/20"
+              >
+                {messageOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label} ({opt.count})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 

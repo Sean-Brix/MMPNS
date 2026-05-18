@@ -25,6 +25,9 @@ const DATABASE_TABLES: DatabaseTable[] = [
   'credentials',
   'school_years',
   'teacher_portal',
+  'teacher_records',
+  'master_subjects',
+  'student_registrations',
 ];
 
 export const DATABASE_UPDATED_EVENT = 'mmpns-db-updated';
@@ -48,6 +51,9 @@ const initialData = {
     classes: {},
     studentsByYear: {},
   },
+  teacher_records: { teachers: [] },
+  master_subjects: { subjects: [] },
+  student_registrations: { students: [] },
 };
 
 let hasStartedCloudSubscriptions = false;

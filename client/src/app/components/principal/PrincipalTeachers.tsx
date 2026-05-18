@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, X, Check, Users, ChevronRight,
   UserCheck, ArrowLeft, Search, CheckSquare, Square, MinusSquare,
-  Layers, UsersRound
+  Layers, UsersRound, Pencil, AlertTriangle, UserPlus
 } from 'lucide-react';
 import { loadMasterSubjects, type MasterSubject } from './PrincipalSubjects';
 import {
@@ -13,6 +13,7 @@ import {
   type GradeSectionGroup,
   getTeachers,
 } from '../../../utils/studentData';
+import { readDatabase, writeDatabase } from '../../../utils/database';
 
 /* ═══════════════════ Types ═══════════════════ */
 interface AssignedSubject {
@@ -28,10 +29,6 @@ interface TeacherRecord {
 }
 
 type AddMode = 'section' | 'individual';
-
-const STORAGE_KEY = 'mmpns_teacher_records';
-const STORAGE_VERSION_KEY = 'mmpns_teacher_records_v';
-const CURRENT_VERSION = '2'; // Bump this to force re-initialization from JSON data
 
 /* ═══════════════════ Build default teachers from teacher.json ═══════════════════ */
 function buildDefaultTeachers(): TeacherRecord[] {
@@ -93,6 +90,13 @@ export const PrincipalTeachers: React.FC = () => {
   const [selectedTeacher, setSelectedTeacher] = useState<string | null>(null);
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
 
+  // Teacher CRUD modals
+  const [showAddTeacher, setShowAddTeacher] = useState(false);
+  const [editingTeacher, setEditingTeacher] = useState<TeacherRecord | null>(null);
+  const [confirmDeleteTeacher, setConfirmDeleteTeacher] = useState<TeacherRecord | null>(null);
+  const [teacherForm, setTeacherForm] = useState({ displayName: '', username: '', department: '' });
+  const [teacherFormError, setTeacherFormError] = useState('');
+
   // Add subject modal
   const [showAddSubject, setShowAddSubject] = useState(false);
   const [newSubjectId, setNewSubjectId] = useState('');
@@ -110,15 +114,13 @@ export const PrincipalTeachers: React.FC = () => {
   const gradeSectionGroups = useMemo(() => getStudentsByGradeSection(), []);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const savedVersion = localStorage.getItem(STORAGE_VERSION_KEY);
-    if (saved && savedVersion === CURRENT_VERSION) {
-      setTeachers(JSON.parse(saved));
+    const stored = readDatabase<{ teachers: TeacherRecord[] }>('teacher_records');
+    if (stored?.teachers && stored.teachers.length > 0) {
+      setTeachers(stored.teachers);
     } else {
       const defaults = buildDefaultTeachers();
       setTeachers(defaults);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
-      localStorage.setItem(STORAGE_VERSION_KEY, CURRENT_VERSION);
+      writeDatabase('teacher_records', { teachers: defaults });
     }
     setMasterSubjects(loadMasterSubjects());
   }, []);
@@ -130,7 +132,60 @@ export const PrincipalTeachers: React.FC = () => {
     }
   }, [selectedTeacher]);
 
-  const save = (data: TeacherRecord[]) => { setTeachers(data); localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); };
+  const save = (data: TeacherRecord[]) => { setTeachers(data); writeDatabase('teacher_records', { teachers: data }); };
+
+  /* ── Teacher CRUD ── */
+  const openAddTeacher = () => {
+    setTeacherForm({ displayName: '', username: '', department: '' });
+    setTeacherFormError('');
+    setShowAddTeacher(true);
+  };
+
+  const openEditTeacher = (t: TeacherRecord, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTeacherForm({ displayName: t.displayName, username: t.username, department: t.department });
+    setTeacherFormError('');
+    setEditingTeacher(t);
+  };
+
+  const handleAddTeacher = () => {
+    const { displayName, username, department } = teacherForm;
+    if (!displayName.trim() || !username.trim() || !department.trim()) {
+      setTeacherFormError('All fields are required.');
+      return;
+    }
+    const slug = username.trim().toLowerCase().replace(/\s+/g, '');
+    if (teachers.find(t => t.username === slug)) {
+      setTeacherFormError('Username already exists. Choose a different one.');
+      return;
+    }
+    save([...teachers, { username: slug, displayName: displayName.trim(), department: department.trim(), subjects: [] }]);
+    setShowAddTeacher(false);
+  };
+
+  const handleEditTeacher = () => {
+    if (!editingTeacher) return;
+    const { displayName, department } = teacherForm;
+    if (!displayName.trim() || !department.trim()) {
+      setTeacherFormError('All fields are required.');
+      return;
+    }
+    save(teachers.map(t => t.username !== editingTeacher.username ? t : { ...t, displayName: displayName.trim(), department: department.trim() }));
+    if (selectedTeacher === editingTeacher.username) {
+      // refresh displayed teacher name
+    }
+    setEditingTeacher(null);
+  };
+
+  const handleDeleteTeacher = () => {
+    if (!confirmDeleteTeacher) return;
+    if (selectedTeacher === confirmDeleteTeacher.username) {
+      setSelectedTeacher(null);
+      setExpandedSubject(null);
+    }
+    save(teachers.filter(t => t.username !== confirmDeleteTeacher.username));
+    setConfirmDeleteTeacher(null);
+  };
 
   const teacher = teachers.find(t => t.username === selectedTeacher);
 
@@ -210,38 +265,214 @@ export const PrincipalTeachers: React.FC = () => {
   if (!selectedTeacher) {
     return (
       <div className="border border-gray-200 bg-white overflow-hidden">
-        <div className="px-4 lg:px-5 py-3 border-b border-gray-200">
-          <h3 className="font-bold text-gray-800">Teacher Management</h3>
-          <p className="text-[10px] text-gray-400 mt-0.5">Click a teacher to manage their subject assignments and students &middot; Data from teacher.json + student.json</p>
+        <div className="px-4 lg:px-5 py-3 border-b border-gray-200 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-gray-800">Teacher Management</h3>
+            <p className="text-[10px] text-gray-400 mt-0.5">Click a teacher to manage subject assignments and students</p>
+          </div>
+          <button onClick={openAddTeacher}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex-shrink-0">
+            <UserPlus size={13} /> Add Teacher
+          </button>
         </div>
         <div className="divide-y divide-gray-100">
+          {teachers.length === 0 && (
+            <div className="py-12 text-center text-gray-300">
+              <Users size={32} className="mx-auto mb-2" />
+              <p className="text-sm font-bold">No teachers yet</p>
+              <p className="text-[10px] text-gray-400 mt-1">Click "Add Teacher" to get started</p>
+            </div>
+          )}
           {teachers.map(t => {
             const subjectNames = t.subjects
               .map(s => resolveSubject(s.subjectId)?.name || s.subjectId)
               .join(', ');
+            const stuCount = totalStudents(t);
             return (
-              <button key={t.username} onClick={() => setSelectedTeacher(t.username)}
-                className="w-full flex items-center gap-3 px-4 lg:px-5 py-3 hover:bg-gray-50/50 transition-colors text-left">
-                <div className="w-10 h-10 rounded bg-[#185C20]/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[11px] font-bold text-[#185C20]">{t.displayName.split(' ').pop()?.slice(0, 2).toUpperCase()}</span>
+              <div key={t.username} className="flex items-center gap-3 px-4 lg:px-5 py-3 hover:bg-gray-50/50 transition-colors group">
+                <button onClick={() => setSelectedTeacher(t.username)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                  <div className="w-10 h-10 rounded bg-[#185C20]/10 flex items-center justify-center flex-shrink-0">
+                    <span className="text-[11px] font-bold text-[#185C20]">{t.displayName.split(' ').pop()?.slice(0, 2).toUpperCase()}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-800">{t.displayName}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{t.department} &middot; {subjectNames || 'No subjects'}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0 mr-2">
+                    <p className="text-sm font-bold text-gray-700 tabular-nums">{t.subjects.length}</p>
+                    <p className="text-[9px] text-gray-400">subject{t.subjects.length !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0 mr-2">
+                    <p className="text-sm font-bold text-[#185C20] tabular-nums">{stuCount}</p>
+                    <p className="text-[9px] text-gray-400">student{stuCount !== 1 ? 's' : ''}</p>
+                  </div>
+                  <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
+                </button>
+                {/* Row actions - visible on hover */}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  <button onClick={(e) => openEditTeacher(t, e)}
+                    className="w-7 h-7 flex items-center justify-center rounded text-gray-300 hover:bg-blue-50 hover:text-blue-500 transition-colors"
+                    title="Edit teacher">
+                    <Pencil size={13} />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteTeacher(t); }}
+                    className="w-7 h-7 flex items-center justify-center rounded text-gray-300 hover:bg-red-50 hover:text-red-400 transition-colors"
+                    title="Delete teacher">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-800">{t.displayName}</p>
-                  <p className="text-[10px] text-gray-400 truncate">{t.department} &middot; {subjectNames || 'No subjects'}</p>
-                </div>
-                <div className="text-right flex-shrink-0 mr-2">
-                  <p className="text-sm font-bold text-gray-700 tabular-nums">{t.subjects.length}</p>
-                  <p className="text-[9px] text-gray-400">subject{t.subjects.length !== 1 ? 's' : ''}</p>
-                </div>
-                <div className="text-right flex-shrink-0 mr-2">
-                  <p className="text-sm font-bold text-[#185C20] tabular-nums">{totalStudents(t)}</p>
-                  <p className="text-[9px] text-gray-400">student{totalStudents(t) !== 1 ? 's' : ''}</p>
-                </div>
-                <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
-              </button>
+              </div>
             );
           })}
         </div>
+
+        {/* ═══════════ ADD TEACHER MODAL ═══════════ */}
+        <Modal open={showAddTeacher} onClose={() => setShowAddTeacher(false)}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+            <h4 className="text-sm font-bold text-gray-800">Add New Teacher</h4>
+            <button onClick={() => setShowAddTeacher(false)} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
+          </div>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Display Name <span className="text-red-400">*</span></label>
+              <input
+                value={teacherForm.displayName}
+                onChange={e => setTeacherForm(f => ({ ...f, displayName: e.target.value }))}
+                placeholder="e.g. Prof. Santos"
+                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Username <span className="text-red-400">*</span></label>
+              <input
+                value={teacherForm.username}
+                onChange={e => setTeacherForm(f => ({ ...f, username: e.target.value }))}
+                placeholder="e.g. msantos"
+                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all font-mono"
+              />
+              <p className="text-[10px] text-gray-400 mt-1">Used for login. Lowercase letters and numbers only.</p>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Department <span className="text-red-400">*</span></label>
+              <input
+                list="dept-suggestions"
+                value={teacherForm.department}
+                onChange={e => setTeacherForm(f => ({ ...f, department: e.target.value }))}
+                placeholder="e.g. Mathematics"
+                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+              />
+              <datalist id="dept-suggestions">
+                {['Mathematics', 'Science', 'English', 'Filipino', 'Araling Panlipunan', 'ESP', 'MAPEH', 'TLE', 'ICT'].map(d => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
+            </div>
+            {teacherFormError && (
+              <p className="text-[11px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} /> {teacherFormError}</p>
+            )}
+          </div>
+          <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+            <button onClick={() => setShowAddTeacher(false)} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+            <button onClick={handleAddTeacher}
+              className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex items-center gap-1.5">
+              <UserPlus size={13} /> Add Teacher
+            </button>
+          </div>
+        </Modal>
+
+        {/* ═══════════ EDIT TEACHER MODAL ═══════════ */}
+        <Modal open={!!editingTeacher} onClose={() => setEditingTeacher(null)}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+            <h4 className="text-sm font-bold text-gray-800">Edit Teacher</h4>
+            <button onClick={() => setEditingTeacher(null)} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
+          </div>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Username</label>
+              <div className="h-9 px-3 border border-gray-100 rounded text-xs bg-gray-50 flex items-center font-mono text-gray-400">{editingTeacher?.username}</div>
+              <p className="text-[10px] text-gray-400 mt-1">Username cannot be changed.</p>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Display Name <span className="text-red-400">*</span></label>
+              <input
+                value={teacherForm.displayName}
+                onChange={e => setTeacherForm(f => ({ ...f, displayName: e.target.value }))}
+                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Department <span className="text-red-400">*</span></label>
+              <input
+                list="dept-suggestions-edit"
+                value={teacherForm.department}
+                onChange={e => setTeacherForm(f => ({ ...f, department: e.target.value }))}
+                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+              />
+              <datalist id="dept-suggestions-edit">
+                {['Mathematics', 'Science', 'English', 'Filipino', 'Araling Panlipunan', 'ESP', 'MAPEH', 'TLE', 'ICT'].map(d => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
+            </div>
+            {teacherFormError && (
+              <p className="text-[11px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} /> {teacherFormError}</p>
+            )}
+          </div>
+          <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+            <button onClick={() => setEditingTeacher(null)} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+            <button onClick={handleEditTeacher}
+              className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex items-center gap-1.5">
+              <Check size={13} /> Save Changes
+            </button>
+          </div>
+        </Modal>
+
+        {/* ═══════════ DELETE TEACHER CONFIRMATION ═══════════ */}
+        {confirmDeleteTeacher && (
+          <Modal open={!!confirmDeleteTeacher} onClose={() => setConfirmDeleteTeacher(null)}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-red-100 bg-red-50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                  <AlertTriangle size={16} className="text-red-500" />
+                </div>
+                <h4 className="text-sm font-bold text-red-700">Remove Teacher</h4>
+              </div>
+              <button onClick={() => setConfirmDeleteTeacher(null)} className="w-8 h-8 flex items-center justify-center rounded text-red-300 hover:bg-red-100 hover:text-red-500 transition-colors"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-700">
+                You are about to permanently remove <span className="font-bold">{confirmDeleteTeacher.displayName}</span> from the system.
+              </p>
+              <div className="border border-red-100 rounded bg-red-50/60 p-3 space-y-2">
+                <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">This will also delete:</p>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded bg-red-100 flex items-center justify-center flex-shrink-0">
+                    <BookOpen size={11} className="text-red-500" />
+                  </div>
+                  <p className="text-xs text-gray-700">
+                    <span className="font-bold">{confirmDeleteTeacher.subjects.length}</span> subject assignment{confirmDeleteTeacher.subjects.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded bg-red-100 flex items-center justify-center flex-shrink-0">
+                    <Users size={11} className="text-red-500" />
+                  </div>
+                  <p className="text-xs text-gray-700">
+                    <span className="font-bold">{totalStudents(confirmDeleteTeacher)}</span> student enrollment{totalStudents(confirmDeleteTeacher) !== 1 ? 's' : ''} across all subjects
+                  </p>
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-400">This action cannot be undone. Student records themselves are not affected — only this teacher's assignments are removed.</p>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+              <button onClick={() => setConfirmDeleteTeacher(null)} className="h-9 px-4 bg-gray-100 text-gray-600 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+              <button onClick={handleDeleteTeacher}
+                className="h-9 px-5 bg-red-500 text-white rounded text-xs font-bold hover:bg-red-600 transition-colors flex items-center gap-1.5">
+                <Trash2 size={13} /> Remove Teacher
+              </button>
+            </div>
+          </Modal>
+        )}
       </div>
     );
   }
@@ -262,10 +493,22 @@ export const PrincipalTeachers: React.FC = () => {
           <p className="font-bold text-gray-800">{teacher?.displayName}</p>
           <p className="text-[10px] text-gray-400">{teacher?.department} Department &middot; {teacher?.subjects.length} subject{teacher?.subjects.length !== 1 ? 's' : ''} &middot; {teacher ? totalStudents(teacher) : 0} students</p>
         </div>
-        <button onClick={() => setShowAddSubject(true)}
-          className="flex items-center gap-1.5 px-3 py-2 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors">
-          <Plus size={13} /> Add Subject
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={(e) => teacher && openEditTeacher(teacher, e)}
+            className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-500 transition-colors"
+            title="Edit teacher">
+            <Pencil size={14} />
+          </button>
+          <button onClick={() => teacher && setConfirmDeleteTeacher(teacher)}
+            className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-400 transition-colors"
+            title="Remove teacher">
+            <Trash2 size={14} />
+          </button>
+          <button onClick={() => setShowAddSubject(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors">
+            <Plus size={13} /> Add Subject
+          </button>
+        </div>
       </div>
 
       {/* Subjects list */}
@@ -709,6 +952,100 @@ export const PrincipalTeachers: React.FC = () => {
           );
         })()}
       </Modal>
+
+      {/* ═══════════ EDIT TEACHER MODAL (profile view) ═══════════ */}
+      <Modal open={!!editingTeacher} onClose={() => setEditingTeacher(null)}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h4 className="text-sm font-bold text-gray-800">Edit Teacher</h4>
+          <button onClick={() => setEditingTeacher(null)} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Username</label>
+            <div className="h-9 px-3 border border-gray-100 rounded text-xs bg-gray-50 flex items-center font-mono text-gray-400">{editingTeacher?.username}</div>
+            <p className="text-[10px] text-gray-400 mt-1">Username cannot be changed.</p>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Display Name <span className="text-red-400">*</span></label>
+            <input
+              value={teacherForm.displayName}
+              onChange={e => setTeacherForm(f => ({ ...f, displayName: e.target.value }))}
+              className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Department <span className="text-red-400">*</span></label>
+            <input
+              list="dept-suggestions-profile"
+              value={teacherForm.department}
+              onChange={e => setTeacherForm(f => ({ ...f, department: e.target.value }))}
+              className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+            />
+            <datalist id="dept-suggestions-profile">
+              {['Mathematics', 'Science', 'English', 'Filipino', 'Araling Panlipunan', 'ESP', 'MAPEH', 'TLE', 'ICT'].map(d => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
+          </div>
+          {teacherFormError && (
+            <p className="text-[11px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} /> {teacherFormError}</p>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button onClick={() => setEditingTeacher(null)} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+          <button onClick={handleEditTeacher}
+            className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex items-center gap-1.5">
+            <Check size={13} /> Save Changes
+          </button>
+        </div>
+      </Modal>
+
+      {/* ═══════════ DELETE TEACHER CONFIRMATION (profile view) ═══════════ */}
+      {confirmDeleteTeacher && (
+        <Modal open={!!confirmDeleteTeacher} onClose={() => setConfirmDeleteTeacher(null)}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-red-100 bg-red-50">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertTriangle size={16} className="text-red-500" />
+              </div>
+              <h4 className="text-sm font-bold text-red-700">Remove Teacher</h4>
+            </div>
+            <button onClick={() => setConfirmDeleteTeacher(null)} className="w-8 h-8 flex items-center justify-center rounded text-red-300 hover:bg-red-100 hover:text-red-500 transition-colors"><X size={16} /></button>
+          </div>
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-gray-700">
+              You are about to permanently remove <span className="font-bold">{confirmDeleteTeacher.displayName}</span> from the system.
+            </p>
+            <div className="border border-red-100 rounded bg-red-50/60 p-3 space-y-2">
+              <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">This will also delete:</p>
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <BookOpen size={11} className="text-red-500" />
+                </div>
+                <p className="text-xs text-gray-700">
+                  <span className="font-bold">{confirmDeleteTeacher.subjects.length}</span> subject assignment{confirmDeleteTeacher.subjects.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <Users size={11} className="text-red-500" />
+                </div>
+                <p className="text-xs text-gray-700">
+                  <span className="font-bold">{totalStudents(confirmDeleteTeacher)}</span> student enrollment{totalStudents(confirmDeleteTeacher) !== 1 ? 's' : ''} across all subjects
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400">This action cannot be undone. Student records themselves are not affected — only this teacher's assignments are removed.</p>
+          </div>
+          <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+            <button onClick={() => setConfirmDeleteTeacher(null)} className="h-9 px-4 bg-gray-100 text-gray-600 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+            <button onClick={handleDeleteTeacher}
+              className="h-9 px-5 bg-red-500 text-white rounded text-xs font-bold hover:bg-red-600 transition-colors flex items-center gap-1.5">
+              <Trash2 size={13} /> Remove Teacher
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* Toast for added students */}
       <AnimatePresence>
