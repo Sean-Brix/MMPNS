@@ -74,27 +74,11 @@ const persistCachedMap = (value: SiteDefaultCloudUrlMap) => {
   }
 };
 
-const inferContentType = (definition: SiteDefaultImageDefinition) => {
-  const lowerPath = definition.storagePath.toLowerCase();
-
-  if (lowerPath.endsWith('.png')) {
-    return 'image/png';
-  }
-  if (lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg')) {
-    return 'image/jpeg';
-  }
-  if (lowerPath.endsWith('.webp')) {
-    return 'image/webp';
-  }
-
-  return 'application/octet-stream';
-};
-
 const sanitizeFileName = (value: string) => {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_');
 };
 
-const ensureCloudObject = async (
+const getExistingCloudObjectUrl = async (
   storage: FirebaseStorage,
   definition: SiteDefaultImageDefinition,
 ) => {
@@ -103,21 +87,7 @@ const ensureCloudObject = async (
   try {
     return await getDownloadURL(objectRef);
   } catch {
-    const response = await fetch(definition.localSrc);
-    if (!response.ok) {
-      throw new Error(`Unable to fetch default asset: ${definition.key}`);
-    }
-
-    const blob = await response.blob();
-    await uploadBytes(objectRef, blob, {
-      contentType: inferContentType(definition),
-      customMetadata: {
-        source: 'mmpns-client-default',
-        imageKey: definition.key,
-      },
-    });
-
-    return getDownloadURL(objectRef);
+    return null;
   }
 };
 
@@ -125,6 +95,7 @@ export const getCachedSiteDefaultImageUrls = () => {
   return readCachedMap();
 };
 
+// Browser clients only read pre-uploaded defaults; bundled assets remain the fallback.
 export const syncSiteDefaultImagesToCloud = async () => {
   if (!hasWindow()) {
     return {};
@@ -149,10 +120,10 @@ export const syncSiteDefaultImagesToCloud = async () => {
         continue;
       }
 
-      try {
-        mergedMap[definition.key] = await ensureCloudObject(storage, definition);
-      } catch (error) {
-        console.warn(`Cloud sync failed for ${definition.key}`, error);
+      const cloudUrl = await getExistingCloudObjectUrl(storage, definition);
+
+      if (cloudUrl) {
+        mergedMap[definition.key] = cloudUrl;
       }
     }
 

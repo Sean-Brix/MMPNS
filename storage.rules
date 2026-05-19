@@ -13,7 +13,7 @@ service firebase.storage {
 
     match /site-defaults/{allPaths=**} {
       allow read: if true;
-      allow write: if isImageUpload();
+      allow write: if false;
     }
 
     match /principal-edits/{allPaths=**} {
