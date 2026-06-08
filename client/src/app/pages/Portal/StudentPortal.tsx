@@ -12,7 +12,7 @@ import {
   saveStudentSession,
   getStudentSession,
   clearStudentSession,
-  getStudentAccounts,
+  getStudentAccountsOnline,
 } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
 
@@ -28,9 +28,11 @@ export const StudentPortal: React.FC = () => {
   const [studentInfo, setStudentInfo] = useState<{ displayName: string; initials: string; gradeLevel: string; section: string } | null>(null);
   const [showDemoAccounts, setShowDemoAccounts] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [demoAccounts, setDemoAccounts] = useState<Awaited<ReturnType<typeof getStudentAccountsOnline>>>([]);
 
   useEffect(() => {
     void initializeDatabase();
+    void getStudentAccountsOnline().then(setDemoAccounts);
     const session = getStudentSession();
     if (session) {
       setIsAuthenticated(true);
@@ -55,7 +57,7 @@ export const StudentPortal: React.FC = () => {
 
     const result = await authenticateStudentOnline(studentId, password);
     if (result.success && result.student) {
-      saveStudentSession(result.student);
+      saveStudentSession(result.student, result.token);
       setIsAuthenticated(true);
       setStudentInfo({
         displayName: result.student.displayName,
@@ -80,8 +82,6 @@ export const StudentPortal: React.FC = () => {
     setActiveSection('dashboard');
     setIsSigningIn(false);
   };
-
-  const demoAccounts = getStudentAccounts();
 
   const sidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -182,7 +182,7 @@ export const StudentPortal: React.FC = () => {
                 onClick={() => setShowDemoAccounts(!showDemoAccounts)}
                 className="w-full text-xs text-[#185C20]/60 text-center font-bold hover:text-[#185C20] transition-colors"
               >
-                {showDemoAccounts ? 'Hide' : 'Show'} Demo Credentials
+                {showDemoAccounts ? 'Hide' : 'Show'} Demo Accounts
               </button>
               {showDemoAccounts && (
                 <div className="mt-3 space-y-2">
@@ -192,7 +192,7 @@ export const StudentPortal: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setStudentId(acc.studentId);
-                        setPassword('mmpns2024');
+                        setPassword('');
                       }}
                       className="w-full text-left p-2.5 bg-white rounded-lg border border-[#185C20]/10 hover:border-[#185C20]/30 transition-all"
                     >
@@ -201,7 +201,7 @@ export const StudentPortal: React.FC = () => {
                     </button>
                   ))}
                   <p className="text-[10px] text-[#185C20]/40 text-center mt-2">
-                    All accounts use password: <strong>mmpns2024</strong>
+                    Select an account to fill the student ID.
                   </p>
                 </div>
               )}

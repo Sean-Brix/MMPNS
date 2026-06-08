@@ -2,13 +2,11 @@
  * Shared Student Data Layer
  * ─────────────────────────
  * Single source of truth for student data across all Principal components.
- * Loads base data from /src/data/seeds/student.json, merges any new registrations
- * stored in localStorage, and provides helper functions for both
+ * Loads roster data from the cloud-backed database cache, merges any new
+ * registrations, and provides helper functions for both
  * PrincipalRegistration and PrincipalTeachers.
  */
 
-import studentJsonData from '../data/seeds/student.json';
-import teacherJsonData from '../data/seeds/teacher.json';
 import { readDatabase, writeDatabase } from './database';
 
 /* ═══════════════════ Types ═══════════════════ */
@@ -87,7 +85,11 @@ const SECTIONS_MAP: Record<string, string[]> = {
 
 /* ═══════════════════ Internal helpers ═══════════════════ */
 
-function mapJsonStudent(s: any): StudentRecord {
+function mapCloudStudent(s: any): StudentRecord {
+  if (s?.id && s?.studentId && s?.batch) {
+    return s as StudentRecord;
+  }
+
   return {
     id: `json-${s.id}`,
     studentId: s.studentId,
@@ -131,13 +133,14 @@ function toPoolEntry(s: StudentRecord): StudentPoolEntry {
   };
 }
 
-/* ═══════════════════ Load base data from JSON ═══════════════════ */
+/* ═══════════════════ Load base data from cloud cache ═══════════════════ */
 
 function loadBaseStudents(): StudentRecord[] {
   try {
-    const raw = (studentJsonData as any).students;
+    const data = readDatabase<{ students?: any[] }>('students');
+    const raw = data?.students;
     if (!Array.isArray(raw)) return [];
-    return raw.map(mapJsonStudent);
+    return raw.map(mapCloudStudent);
   } catch {
     return [];
   }
@@ -154,7 +157,7 @@ function loadNewRegistrations(): StudentRecord[] {
 
 /* ═══════════════════ Public API ═══════════════════ */
 
-/** Get ALL students (base JSON + new registrations), deduped by studentId */
+/** Get ALL students (cloud roster + new registrations), deduped by studentId */
 export function getAllStudents(batch?: string): StudentRecord[] {
   const base = loadBaseStudents();
   const added = loadNewRegistrations();
@@ -251,10 +254,11 @@ export function getGradeBreakdown(batch?: string): {
   }));
 }
 
-/** Load teacher info from teacher.json */
+/** Load teacher info from the cloud-backed teachers table */
 export function getTeachers(): TeacherInfo[] {
   try {
-    const raw = (teacherJsonData as any).teachers;
+    const data = readDatabase<{ teachers?: any[] }>('teachers');
+    const raw = data?.teachers;
     if (!Array.isArray(raw)) return [];
     return raw.map((t: any) => ({
       username: t.username,

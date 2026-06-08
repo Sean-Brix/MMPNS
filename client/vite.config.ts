@@ -29,7 +29,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor-firebase': ['firebase/app', 'firebase/storage'],
           'vendor-motion': ['motion/react'],
           'vendor-maps': ['@react-google-maps/api'],
         },
@@ -48,6 +47,15 @@ export default defineConfig({
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+    },
+  },
+
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5001/mmpns-9bdde/us-central1/api',
+        changeOrigin: true,
+      },
     },
   },
 

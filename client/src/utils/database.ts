@@ -1,21 +1,27 @@
-// Database utilities with Firestore-first persistence and local cache fallback.
-// Local storage is retained as a compatibility cache during migration.
-
-import facultyData from '../data/seeds/faculty.json';
-import alumniData from '../data/seeds/alumni.json';
-import pagesData from '../data/seeds/pages.json';
-import settingsData from '../data/seeds/settings.json';
-import credentialsData from '../data/seeds/credentials.json';
-import schoolYearsData from '../data/seeds/school_years.json';
 import {
-  getCloudTable,
-  isCloudDatabaseConfigured,
-  setCloudTable,
-  subscribeCloudTable,
-  type CloudDatabaseTable,
-} from './firestoreDatabase';
+  deleteApiTable,
+  getApiSeedSnapshot,
+  getApiTable,
+  hasDeveloperAdminSession,
+  setApiTable,
+} from './apiClient';
 
-export type DatabaseTable = CloudDatabaseTable;
+export type DatabaseTable =
+  | 'faculty'
+  | 'alumni'
+  | 'pages'
+  | 'settings'
+  | 'credentials'
+  | 'school_years'
+  | 'teacher_portal'
+  | 'calendar'
+  | 'teacher_records'
+  | 'master_subjects'
+  | 'student_registrations'
+  | 'students'
+  | 'teachers'
+  | 'evaluation_rubrics'
+  | 'teacher_evaluations';
 
 const DATABASE_TABLES: DatabaseTable[] = [
   'faculty',
@@ -25,9 +31,14 @@ const DATABASE_TABLES: DatabaseTable[] = [
   'credentials',
   'school_years',
   'teacher_portal',
+  'calendar',
   'teacher_records',
   'master_subjects',
   'student_registrations',
+  'students',
+  'teachers',
+  'evaluation_rubrics',
+  'teacher_evaluations',
 ];
 
 export const DATABASE_UPDATED_EVENT = 'mmpns-db-updated';
@@ -40,88 +51,16 @@ interface DatabaseUpdateEventDetail {
   source: DatabaseUpdateSource;
 }
 
-const initialData = {
-  faculty: facultyData,
-  alumni: alumniData,
-  pages: pagesData,
-  settings: settingsData,
-  credentials: credentialsData,
-  school_years: schoolYearsData,
-  teacher_portal: {
-    classes: {},
-    studentsByYear: {},
-  },
-  teacher_records: { teachers: [] },
-  master_subjects: { subjects: [] },
-  student_registrations: { students: [] },
+const EMPTY_CREDENTIALS = {
+  teachers: [],
+  students: [],
+  admins: [],
 };
 
-let hasStartedCloudSubscriptions = false;
+const PROTECTED_TABLES = new Set<DatabaseTable>(['credentials']);
 
-const ADMIN_TEACHER_TEMPLATE = {
-  id: 5,
-  username: 'admin.teacher',
-  password: '123456',
-  firstName: 'Adrian',
-  lastName: 'Sarmiento',
-  displayName: 'Portal Admin',
-  initials: 'PA',
-  email: 'portal.admin@mmpns.edu.ph',
-  department: 'Administration',
-  position: 'Admin',
-  employeeId: 'MMPNS-A-2024-002',
-  subjects: [],
-  advisoryClass: null,
-  status: 'active',
-  avatar: null,
-  lastLogin: null,
-};
-
-const migrateCredentials = (rawValue: string | null) => {
-  try {
-    const source = rawValue ? JSON.parse(rawValue) : credentialsData;
-
-    const next = {
-      ...source,
-      teachers: Array.isArray(source.teachers) ? [...source.teachers] : [],
-      admins: Array.isArray(source.admins) ? [...source.admins] : [],
-    };
-
-    const adminIndex = next.admins.findIndex((admin: any) => admin.username === 'admin');
-    if (adminIndex >= 0) {
-      next.admins[adminIndex] = {
-        ...next.admins[adminIndex],
-        password: '123456',
-      };
-    }
-
-    const adminTeacherIndex = next.teachers.findIndex((teacher: any) => teacher.username === 'admin.teacher');
-    if (adminTeacherIndex >= 0) {
-      next.teachers[adminTeacherIndex] = {
-        ...next.teachers[adminTeacherIndex],
-        ...ADMIN_TEACHER_TEMPLATE,
-      };
-    } else {
-      const legacyReplacementIndex = next.teachers.findIndex((teacher: any) => teacher.id === 5);
-      if (legacyReplacementIndex >= 0) {
-        next.teachers[legacyReplacementIndex] = ADMIN_TEACHER_TEMPLATE;
-      } else {
-        const maxId = next.teachers.reduce((max: number, teacher: any) => {
-          return typeof teacher.id === 'number' ? Math.max(max, teacher.id) : max;
-        }, 0);
-
-        next.teachers.push({
-          ...ADMIN_TEACHER_TEMPLATE,
-          id: maxId + 1,
-        });
-      }
-    }
-
-    return next;
-  } catch {
-    return credentialsData;
-  }
-};
+let hasStartedCloudRefresh = false;
+let cloudRefreshIntervalId: number | null = null;
 
 const hasWindow = () => typeof window !== 'undefined';
 
@@ -141,17 +80,22 @@ const emitDatabaseUpdated = (table: DatabaseTable, source: DatabaseUpdateSource)
   window.dispatchEvent(new CustomEvent<DatabaseUpdateEventDetail>(DATABASE_UPDATED_EVENT, { detail }));
 };
 
+const normalizeCredentials = (value: unknown) => {
+  const source = value && typeof value === 'object' ? value as any : EMPTY_CREDENTIALS;
+  return {
+    ...source,
+    teachers: Array.isArray(source.teachers) ? [...source.teachers] : [],
+    students: Array.isArray(source.students) ? [...source.students] : [],
+    admins: Array.isArray(source.admins) ? [...source.admins] : [],
+  };
+};
+
 const normalizeTableData = (table: DatabaseTable, value: unknown) => {
   if (table !== 'credentials') {
     return value;
   }
 
-  try {
-    const serialized = JSON.stringify(value ?? null);
-    return migrateCredentials(serialized);
-  } catch {
-    return migrateCredentials(null);
-  }
+  return normalizeCredentials(value);
 };
 
 const persistTableLocally = (
@@ -168,88 +112,82 @@ const persistTableLocally = (
   emitDatabaseUpdated(table, source);
 };
 
-const startCloudSubscriptions = () => {
-  if (!hasWindow() || !isCloudDatabaseConfigured() || hasStartedCloudSubscriptions) {
+const removeTableLocally = (table: DatabaseTable, source: DatabaseUpdateSource) => {
+  if (!hasWindow()) {
     return;
   }
 
-  hasStartedCloudSubscriptions = true;
-
-  DATABASE_TABLES.forEach((table) => {
-    subscribeCloudTable(
-      table,
-      (cloudValue) => {
-        if (cloudValue === null) {
-          return;
-        }
-
-        try {
-          persistTableLocally(table, cloudValue, 'cloud');
-        } catch (error) {
-          console.error(`Failed to sync ${table} from cloud snapshot:`, error);
-        }
-      },
-      (error) => {
-        console.error(`Cloud listener failed for ${table}:`, error);
-      },
-    );
-  });
+  localStorage.removeItem(getStorageKey(table));
+  emitDatabaseUpdated(table, source);
 };
 
-// Initialize local cache from cloud and seed missing cloud docs.
+const canAccessProtectedTable = (table: DatabaseTable) => (
+  !PROTECTED_TABLES.has(table) || hasDeveloperAdminSession()
+);
+
+const refreshTableFromCloud = async (table: DatabaseTable) => {
+  if (!canAccessProtectedTable(table)) {
+    removeTableLocally(table, 'cloud');
+    return null;
+  }
+
+  const cloudValue = await getApiTable(table);
+
+  if (cloudValue !== null) {
+    persistTableLocally(table, cloudValue, 'cloud');
+    return cloudValue;
+  }
+
+  const localValue = readDatabase(table);
+  if (localValue !== null) {
+    await setApiTable(table, normalizeTableData(table, localValue));
+  }
+
+  return localValue;
+};
+
+const startCloudRefresh = () => {
+  if (!hasWindow() || hasStartedCloudRefresh) {
+    return;
+  }
+
+  hasStartedCloudRefresh = true;
+
+  cloudRefreshIntervalId = window.setInterval(() => {
+    DATABASE_TABLES.forEach((table) => {
+      refreshTableFromCloud(table).catch((error) => {
+        console.error(`Failed to refresh ${table} from API:`, error);
+      });
+    });
+  }, 30_000);
+};
+
+export const isCloudDatabaseConfigured = () => true;
+
 export const initializeDatabase = async () => {
   if (!hasWindow()) {
     return;
   }
 
-  for (const table of DATABASE_TABLES) {
-    try {
-      if (!localStorage.getItem(getStorageKey(table))) {
-        persistTableLocally(table, initialData[table], 'local');
+  await Promise.all(
+    DATABASE_TABLES.map(async (table) => {
+      try {
+        await refreshTableFromCloud(table);
+      } catch (error) {
+        console.error(`Failed to initialize ${table} from API:`, error);
       }
-    } catch (error) {
-      console.error(`Failed to initialize ${table} local cache:`, error);
-    }
-  }
+    }),
+  );
 
-  try {
-    persistTableLocally('credentials', readDatabase('credentials') ?? credentialsData, 'local');
-  } catch (error) {
-    console.error('Failed to migrate local credentials cache:', error);
-  }
-
-  if (!isCloudDatabaseConfigured()) {
-    return;
-  }
-
-  for (const table of DATABASE_TABLES) {
-    try {
-      const cloudValue = await getCloudTable(table);
-
-      if (cloudValue === null) {
-        const seedValue = readDatabase(table) ?? initialData[table];
-        const normalizedSeed = normalizeTableData(table, seedValue);
-        await setCloudTable(table, normalizedSeed);
-        continue;
-      }
-
-      const normalizedCloudValue = normalizeTableData(table, cloudValue);
-      persistTableLocally(table, normalizedCloudValue, 'cloud');
-
-      if (table === 'credentials') {
-        await setCloudTable(table, normalizedCloudValue);
-      }
-    } catch (error) {
-      console.error(`Failed to initialize ${table} from cloud:`, error);
-    }
-  }
-
-  startCloudSubscriptions();
+  startCloudRefresh();
 };
 
-// Read from database
 export const readDatabase = <T = any>(table: DatabaseTable): T | null => {
   if (!hasWindow()) {
+    return null;
+  }
+
+  if (!canAccessProtectedTable(table)) {
     return null;
   }
 
@@ -266,26 +204,39 @@ export const readDatabase = <T = any>(table: DatabaseTable): T | null => {
 };
 
 export const readDatabaseOnline = async <T = any>(table: DatabaseTable): Promise<T | null> => {
-  if (!isCloudDatabaseConfigured()) {
-    return readDatabase<T>(table);
+  if (!canAccessProtectedTable(table)) {
+    removeTableLocally(table, 'cloud');
+    return null;
   }
 
   try {
-    const cloudValue = await getCloudTable<T>(table);
+    const cloudValue = await getApiTable<T>(table);
     if (cloudValue !== null) {
       persistTableLocally(table, cloudValue, 'cloud');
       return normalizeTableData(table, cloudValue) as T;
     }
   } catch (error) {
-    console.error(`Failed to read ${table} from cloud:`, error);
+    console.error(`Failed to read ${table} from API:`, error);
   }
 
   return readDatabase<T>(table);
 };
 
-// Write to database
+export const readSeedSnapshotOnline = async <T = any>(key: string): Promise<T | null> => {
+  try {
+    return await getApiSeedSnapshot<T>(key);
+  } catch (error) {
+    console.error(`Failed to read ${key} seed snapshot from API:`, error);
+    return null;
+  }
+};
+
 export const writeDatabase = (table: DatabaseTable, data: any): boolean => {
   try {
+    if (!canAccessProtectedTable(table)) {
+      return false;
+    }
+
     const dataWithTimestamp =
       data && typeof data === 'object' && !Array.isArray(data)
         ? {
@@ -294,13 +245,12 @@ export const writeDatabase = (table: DatabaseTable, data: any): boolean => {
           }
         : data;
 
-    persistTableLocally(table, dataWithTimestamp, 'local');
+    const normalized = normalizeTableData(table, dataWithTimestamp);
+    persistTableLocally(table, normalized, 'local');
 
-    if (isCloudDatabaseConfigured()) {
-      void setCloudTable(table, normalizeTableData(table, dataWithTimestamp)).catch((error) => {
-        console.error(`Failed to write ${table} to cloud:`, error);
-      });
-    }
+    void setApiTable(table, normalized).catch((error) => {
+      console.error(`Failed to write ${table} to API:`, error);
+    });
 
     return true;
   } catch (error) {
@@ -311,6 +261,10 @@ export const writeDatabase = (table: DatabaseTable, data: any): boolean => {
 
 export const writeDatabaseOnline = async (table: DatabaseTable, data: any): Promise<boolean> => {
   try {
+    if (!canAccessProtectedTable(table)) {
+      return false;
+    }
+
     const dataWithTimestamp =
       data && typeof data === 'object' && !Array.isArray(data)
         ? {
@@ -319,13 +273,10 @@ export const writeDatabaseOnline = async (table: DatabaseTable, data: any): Prom
           }
         : data;
 
-    persistTableLocally(table, dataWithTimestamp, 'local');
-
-    if (!isCloudDatabaseConfigured()) {
-      return true;
-    }
-
-    return await setCloudTable(table, normalizeTableData(table, dataWithTimestamp));
+    const normalized = normalizeTableData(table, dataWithTimestamp);
+    persistTableLocally(table, normalized, 'local');
+    await setApiTable(table, normalized);
+    return true;
   } catch (error) {
     console.error(`Failed to write ${table} online:`, error);
     return false;
@@ -337,35 +288,47 @@ export const subscribeDatabaseTable = <T = any>(
   callback: (data: T | null) => void,
   onError?: (error: unknown) => void,
 ) => {
-  if (!isCloudDatabaseConfigured()) {
-    callback(readDatabase<T>(table));
-    return () => {
-      // No-op when cloud database is not configured.
-    };
-  }
-
-  return subscribeCloudTable<T>(
-    table,
-    (data) => {
-      if (data !== null) {
-        try {
-          persistTableLocally(table, data, 'cloud');
-        } catch (error) {
-          console.error(`Failed to persist ${table} snapshot locally:`, error);
+  const refresh = () => {
+    void readDatabaseOnline<T>(table)
+      .then(callback)
+      .catch((error) => {
+        if (onError) {
+          onError(error);
         }
-      }
-      callback(data === null ? null : (normalizeTableData(table, data) as T));
-    },
-    onError,
-  );
+      });
+  };
+
+  const handleDatabaseUpdate = (event: Event) => {
+    const detail = (event as CustomEvent<DatabaseUpdateEventDetail>).detail;
+    if (detail?.table === table) {
+      callback(readDatabase<T>(table));
+    }
+  };
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === getStorageKey(table)) {
+      callback(readDatabase<T>(table));
+    }
+  };
+
+  window.addEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdate);
+  window.addEventListener('storage', handleStorage);
+  refresh();
+
+  const intervalId = window.setInterval(refresh, 30_000);
+
+  return () => {
+    window.removeEventListener(DATABASE_UPDATED_EVENT, handleDatabaseUpdate);
+    window.removeEventListener('storage', handleStorage);
+    window.clearInterval(intervalId);
+  };
 };
 
-// Update specific item in an array
 export const updateDatabaseItem = <T extends { id: number }>(
   table: DatabaseTable,
   arrayKey: string,
   itemId: number,
-  updates: Partial<T>
+  updates: Partial<T>,
 ): boolean => {
   try {
     const data = readDatabase(table);
@@ -373,12 +336,12 @@ export const updateDatabaseItem = <T extends { id: number }>(
 
     const items = data[arrayKey] as T[];
     const index = items.findIndex((item) => item.id === itemId);
-    
+
     if (index === -1) return false;
 
     items[index] = { ...items[index], ...updates };
     data[arrayKey] = items;
-    
+
     return writeDatabase(table, data);
   } catch (error) {
     console.error(`Failed to update item in ${table}:`, error);
@@ -386,23 +349,22 @@ export const updateDatabaseItem = <T extends { id: number }>(
   }
 };
 
-// Add new item to array
 export const addDatabaseItem = <T extends { id: number }>(
   table: DatabaseTable,
   arrayKey: string,
-  item: Omit<T, 'id'>
+  item: Omit<T, 'id'>,
 ): number | null => {
   try {
     const data = readDatabase(table);
     if (!data || !data[arrayKey]) return null;
 
     const items = data[arrayKey] as T[];
-    const newId = items.length > 0 ? Math.max(...items.map(i => i.id)) + 1 : 1;
+    const newId = items.length > 0 ? Math.max(...items.map((i) => i.id)) + 1 : 1;
     const newItem = { ...item, id: newId } as T;
-    
+
     items.push(newItem);
     data[arrayKey] = items;
-    
+
     return writeDatabase(table, data) ? newId : null;
   } catch (error) {
     console.error(`Failed to add item to ${table}:`, error);
@@ -410,11 +372,10 @@ export const addDatabaseItem = <T extends { id: number }>(
   }
 };
 
-// Delete item from array
 export const deleteDatabaseItem = (
   table: DatabaseTable,
   arrayKey: string,
-  itemId: number
+  itemId: number,
 ): boolean => {
   try {
     const data = readDatabase(table);
@@ -422,7 +383,7 @@ export const deleteDatabaseItem = (
 
     const items = data[arrayKey] as any[];
     data[arrayKey] = items.filter((item) => item.id !== itemId);
-    
+
     return writeDatabase(table, data);
   } catch (error) {
     console.error(`Failed to delete item from ${table}:`, error);
@@ -430,13 +391,11 @@ export const deleteDatabaseItem = (
   }
 };
 
-// Export database to JSON (for download)
 export const exportDatabase = (table: DatabaseTable): string => {
   const data = readDatabase(table);
   return JSON.stringify(data, null, 2);
 };
 
-// Import database from JSON string
 export const importDatabase = (table: DatabaseTable, jsonString: string): boolean => {
   try {
     const data = JSON.parse(jsonString);
@@ -447,7 +406,21 @@ export const importDatabase = (table: DatabaseTable, jsonString: string): boolea
   }
 };
 
-// Reset database to initial state
 export const resetDatabase = async (table: DatabaseTable): Promise<boolean> => {
-  return writeDatabaseOnline(table, initialData[table]);
+  try {
+    await deleteApiTable(table);
+    removeTableLocally(table, 'cloud');
+    return true;
+  } catch (error) {
+    console.error(`Failed to reset ${table}:`, error);
+    return false;
+  }
+};
+
+export const stopDatabaseRefreshForTests = () => {
+  if (cloudRefreshIntervalId !== null) {
+    window.clearInterval(cloudRefreshIntervalId);
+    cloudRefreshIntervalId = null;
+  }
+  hasStartedCloudRefresh = false;
 };

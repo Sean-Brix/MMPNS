@@ -1,4 +1,5 @@
 import { getTeachers } from './studentData';
+import { readDatabase, writeDatabase } from './database';
 
 export interface RubricCriterion {
   id: string;
@@ -38,6 +39,8 @@ export interface EvaluationTeacher {
 
 export const STORAGE_KEY_RUBRICS = 'mmpns_principal_rubrics';
 export const STORAGE_KEY_EVALS = 'mmpns_principal_evaluations';
+const EVALUATION_RUBRICS_TABLE = 'evaluation_rubrics';
+const TEACHER_EVALUATIONS_TABLE = 'teacher_evaluations';
 
 export const DEFAULT_RUBRIC: EvaluationRubric = {
   id: 'default-rubric',
@@ -147,16 +150,48 @@ export const getEvaluationTeachers = (): EvaluationTeacher[] => {
   return teachers.length > 0 ? teachers : FALLBACK_TEACHERS;
 };
 
-export const loadEvaluationRubrics = () => readJson<EvaluationRubric[]>(STORAGE_KEY_RUBRICS, [DEFAULT_RUBRIC]);
+const normalizeRubrics = (value: unknown): EvaluationRubric[] | null => {
+  if (Array.isArray(value)) {
+    return value as EvaluationRubric[];
+  }
 
-export const loadTeacherEvaluations = () => readJson<TeacherEvaluation[]>(STORAGE_KEY_EVALS, DEFAULT_EVALUATIONS);
+  if (value && typeof value === 'object' && Array.isArray((value as { rubrics?: unknown[] }).rubrics)) {
+    return (value as { rubrics: EvaluationRubric[] }).rubrics;
+  }
+
+  return null;
+};
+
+const normalizeEvaluations = (value: unknown): TeacherEvaluation[] | null => {
+  if (Array.isArray(value)) {
+    return value as TeacherEvaluation[];
+  }
+
+  if (value && typeof value === 'object' && Array.isArray((value as { evaluations?: unknown[] }).evaluations)) {
+    return (value as { evaluations: TeacherEvaluation[] }).evaluations;
+  }
+
+  return null;
+};
+
+export const loadEvaluationRubrics = () => {
+  const cloudRubrics = normalizeRubrics(readDatabase(EVALUATION_RUBRICS_TABLE));
+  return cloudRubrics ?? readJson<EvaluationRubric[]>(STORAGE_KEY_RUBRICS, [DEFAULT_RUBRIC]);
+};
+
+export const loadTeacherEvaluations = () => {
+  const cloudEvaluations = normalizeEvaluations(readDatabase(TEACHER_EVALUATIONS_TABLE));
+  return cloudEvaluations ?? readJson<TeacherEvaluation[]>(STORAGE_KEY_EVALS, DEFAULT_EVALUATIONS);
+};
 
 export const saveEvaluationRubrics = (rubrics: EvaluationRubric[]) => {
   window.localStorage.setItem(STORAGE_KEY_RUBRICS, JSON.stringify(rubrics));
+  writeDatabase(EVALUATION_RUBRICS_TABLE, { rubrics });
 };
 
 export const saveTeacherEvaluations = (evaluations: TeacherEvaluation[]) => {
   window.localStorage.setItem(STORAGE_KEY_EVALS, JSON.stringify(evaluations));
+  writeDatabase(TEACHER_EVALUATIONS_TABLE, { evaluations });
 };
 
 export const computeEvaluationOverall = (

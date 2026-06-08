@@ -30,7 +30,7 @@ interface TeacherRecord {
 
 type AddMode = 'section' | 'individual';
 
-/* ═══════════════════ Build default teachers from teacher.json ═══════════════════ */
+/* ═══════════════════ Build default teachers from the cloud roster ═══════════════════ */
 function buildDefaultTeachers(): TeacherRecord[] {
   const teachers = getTeachers();
   const pool = getStudentPool();

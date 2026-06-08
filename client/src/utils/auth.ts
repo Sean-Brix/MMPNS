@@ -1,18 +1,21 @@
 // Authentication utilities for portal login
-// Uses the credentials database for validation
+// Uses the Functions API for credential validation
 
+import {
+  authenticateApiAccount,
+  getDemoStudentAccountsApi,
+  getDemoTeacherAccountsApi,
+} from './apiClient';
 import {
   initializeDatabase,
   readDatabase,
-  readDatabaseOnline,
   updateDatabaseItem,
-  writeDatabaseOnline,
 } from './database';
 
 export interface TeacherCredential {
   id: number;
   username: string;
-  password: string;
+  password?: string;
   firstName: string;
   lastName: string;
   displayName: string;
@@ -31,7 +34,7 @@ export interface TeacherCredential {
 export interface StudentCredential {
   id: number;
   studentId: string;
-  password: string;
+  password?: string;
   firstName: string;
   lastName: string;
   displayName: string;
@@ -50,7 +53,7 @@ export interface StudentCredential {
 export interface AdminCredential {
   id: number;
   username: string;
-  password: string;
+  password?: string;
   firstName: string;
   lastName: string;
   displayName: string;
@@ -67,8 +70,6 @@ interface CredentialsDB {
   admins: AdminCredential[];
 }
 
-let initializeDatabasePromise: Promise<void> | null = null;
-
 // Ensure the database is initialized
 const ensureDB = () => {
   const data = readDatabase<CredentialsDB>('credentials');
@@ -78,60 +79,6 @@ const ensureDB = () => {
     return readDatabase<CredentialsDB>('credentials');
   }
   return data;
-};
-
-const ensureDatabaseInitialized = async () => {
-  if (!initializeDatabasePromise) {
-    initializeDatabasePromise = initializeDatabase();
-  }
-
-  try {
-    await initializeDatabasePromise;
-  } catch {
-    // Allow retry on the next call if initialization failed.
-    initializeDatabasePromise = null;
-  }
-};
-
-const ensureDBOnline = async (): Promise<CredentialsDB | null> => {
-  await ensureDatabaseInitialized();
-
-  try {
-    const onlineData = await readDatabaseOnline<CredentialsDB>('credentials');
-    if (onlineData) {
-      return onlineData;
-    }
-  } catch (error) {
-    console.error('Failed to load credentials from cloud database:', error);
-  }
-
-  return ensureDB();
-};
-
-const persistLastLoginOnline = async (
-  accountType: 'teachers' | 'students' | 'admins',
-  accountId: number,
-  credentials: CredentialsDB,
-) => {
-  const accounts = credentials[accountType];
-
-  if (!Array.isArray(accounts)) {
-    return;
-  }
-
-  const updatedAccounts = accounts.map((account) =>
-    account.id === accountId
-      ? {
-          ...account,
-          lastLogin: new Date().toISOString(),
-        }
-      : account,
-  );
-
-  await writeDatabaseOnline('credentials', {
-    ...credentials,
-    [accountType]: updatedAccounts,
-  });
 };
 
 // Authenticate a teacher by username and password
@@ -167,30 +114,19 @@ export const authenticateTeacher = (
 export const authenticateTeacherOnline = async (
   username: string,
   password: string,
-): Promise<{ success: boolean; teacher?: TeacherCredential; error?: string }> => {
-  const db = await ensureDBOnline();
-  if (!db || !db.teachers) {
-    return { success: false, error: 'Unable to access credentials database.' };
-  }
-
-  const teacher = db.teachers.find(
-    (record) =>
-      record.username.toLowerCase() === username.trim().toLowerCase() &&
-      record.password === password &&
-      record.status === 'active',
-  );
-
-  if (!teacher) {
-    return { success: false, error: 'Invalid username or password. Please try again.' };
-  }
-
+): Promise<{ success: boolean; teacher?: TeacherCredential; token?: string; error?: string }> => {
   try {
-    await persistLastLoginOnline('teachers', teacher.id, db);
+    const result = await authenticateApiAccount<TeacherCredential>('teacher', { username, password });
+    return {
+      success: result.success,
+      teacher: result.teacher,
+      token: result.token,
+      error: result.error,
+    };
   } catch (error) {
-    console.error('Failed to persist teacher last login online:', error);
+    console.error('Failed to authenticate teacher through API:', error);
+    return { success: false, error: 'Unable to access the authentication service.' };
   }
-
-  return { success: true, teacher };
 };
 
 // Authenticate a student by student ID and password
@@ -226,30 +162,19 @@ export const authenticateStudent = (
 export const authenticateStudentOnline = async (
   studentId: string,
   password: string,
-): Promise<{ success: boolean; student?: StudentCredential; error?: string }> => {
-  const db = await ensureDBOnline();
-  if (!db || !db.students) {
-    return { success: false, error: 'Unable to access credentials database.' };
-  }
-
-  const student = db.students.find(
-    (record) =>
-      record.studentId.toLowerCase() === studentId.trim().toLowerCase() &&
-      record.password === password &&
-      record.status === 'active',
-  );
-
-  if (!student) {
-    return { success: false, error: 'Invalid Student ID or password. Please try again.' };
-  }
-
+): Promise<{ success: boolean; student?: StudentCredential; token?: string; error?: string }> => {
   try {
-    await persistLastLoginOnline('students', student.id, db);
+    const result = await authenticateApiAccount<StudentCredential>('student', { studentId, password });
+    return {
+      success: result.success,
+      student: result.student,
+      token: result.token,
+      error: result.error,
+    };
   } catch (error) {
-    console.error('Failed to persist student last login online:', error);
+    console.error('Failed to authenticate student through API:', error);
+    return { success: false, error: 'Unable to access the authentication service.' };
   }
-
-  return { success: true, student };
 };
 
 // Authenticate an admin by username and password
@@ -285,30 +210,19 @@ export const authenticateAdmin = (
 export const authenticateAdminOnline = async (
   username: string,
   password: string,
-): Promise<{ success: boolean; admin?: AdminCredential; error?: string }> => {
-  const db = await ensureDBOnline();
-  if (!db || !db.admins) {
-    return { success: false, error: 'Unable to access credentials database.' };
-  }
-
-  const admin = db.admins.find(
-    (record) =>
-      record.username.toLowerCase() === username.trim().toLowerCase() &&
-      record.password === password &&
-      record.status === 'active',
-  );
-
-  if (!admin) {
-    return { success: false, error: 'Invalid username or password. Please try again.' };
-  }
-
+): Promise<{ success: boolean; admin?: AdminCredential; token?: string; error?: string }> => {
   try {
-    await persistLastLoginOnline('admins', admin.id, db);
+    const result = await authenticateApiAccount<AdminCredential>('admin', { username, password });
+    return {
+      success: result.success,
+      admin: result.admin,
+      token: result.token,
+      error: result.error,
+    };
   } catch (error) {
-    console.error('Failed to persist admin last login online:', error);
+    console.error('Failed to authenticate admin through API:', error);
+    return { success: false, error: 'Unable to access the authentication service.' };
   }
-
-  return { success: true, admin };
 };
 
 // Session management helpers
@@ -316,7 +230,7 @@ const TEACHER_SESSION_KEY = 'teacherAuth';
 const STUDENT_SESSION_KEY = 'studentAuth';
 const ADMIN_SESSION_KEY = 'adminAuth';
 
-export const saveTeacherSession = (teacher: TeacherCredential) => {
+export const saveTeacherSession = (teacher: TeacherCredential, token?: string) => {
   const sessionData = {
     id: teacher.id,
     username: teacher.username,
@@ -328,6 +242,7 @@ export const saveTeacherSession = (teacher: TeacherCredential) => {
     email: teacher.email,
     subjects: teacher.subjects,
     advisoryClass: teacher.advisoryClass,
+    token,
     authenticated: true,
     loginTime: new Date().toISOString(),
   };
@@ -339,7 +254,7 @@ export const getTeacherSession = () => {
   if (!data) return null;
   try {
     const session = JSON.parse(data);
-    return session.authenticated ? session : null;
+    return session.authenticated && session.token ? session : null;
   } catch {
     return null;
   }
@@ -349,7 +264,7 @@ export const clearTeacherSession = () => {
   localStorage.removeItem(TEACHER_SESSION_KEY);
 };
 
-export const saveStudentSession = (student: StudentCredential) => {
+export const saveStudentSession = (student: StudentCredential, token?: string) => {
   const sessionData = {
     id: student.id,
     studentId: student.studentId,
@@ -359,6 +274,7 @@ export const saveStudentSession = (student: StudentCredential) => {
     section: student.section,
     email: student.email,
     lrn: student.lrn,
+    token,
     authenticated: true,
     loginTime: new Date().toISOString(),
   };
@@ -370,7 +286,7 @@ export const getStudentSession = () => {
   if (!data) return null;
   try {
     const session = JSON.parse(data);
-    return session.authenticated ? session : null;
+    return session.authenticated && session.token ? session : null;
   } catch {
     return null;
   }
@@ -380,13 +296,14 @@ export const clearStudentSession = () => {
   localStorage.removeItem(STUDENT_SESSION_KEY);
 };
 
-export const saveAdminSession = (admin: AdminCredential) => {
+export const saveAdminSession = (admin: AdminCredential, token?: string) => {
   const sessionData = {
     id: admin.id,
     displayName: admin.displayName,
     initials: admin.initials,
     role: admin.role,
     email: admin.email,
+    token,
     authenticated: true,
     loginTime: new Date().toISOString(),
   };
@@ -398,7 +315,7 @@ export const getAdminSession = () => {
   if (!data) return null;
   try {
     const session = JSON.parse(data);
-    return session.authenticated ? session : null;
+    return session.authenticated && session.token ? session : null;
   } catch {
     return null;
   }
@@ -408,15 +325,14 @@ export const clearAdminSession = () => {
   localStorage.removeItem(ADMIN_SESSION_KEY);
 };
 
-// Get all teacher accounts (for demo credentials display)
-export const getTeacherAccounts = (): Pick<TeacherCredential, 'username' | 'password' | 'displayName' | 'department' | 'position'>[] => {
+// Get all teacher accounts (for demo account display)
+export const getTeacherAccounts = (): Pick<TeacherCredential, 'username' | 'displayName' | 'department' | 'position'>[] => {
   const db = ensureDB();
   if (!db || !db.teachers) return [];
   return db.teachers
     .filter((t) => t.status === 'active')
     .map((t) => ({
       username: t.username,
-      password: t.password,
       displayName: t.displayName,
       department: t.department,
       position: t.position,
@@ -435,4 +351,22 @@ export const getStudentAccounts = (): Pick<StudentCredential, 'studentId' | 'dis
       gradeLevel: s.gradeLevel,
       section: s.section,
     }));
+};
+
+export const getTeacherAccountsOnline = async () => {
+  try {
+    return await getDemoTeacherAccountsApi<ReturnType<typeof getTeacherAccounts>[number]>();
+  } catch (error) {
+    console.error('Failed to load teacher account list from API:', error);
+    return getTeacherAccounts();
+  }
+};
+
+export const getStudentAccountsOnline = async () => {
+  try {
+    return await getDemoStudentAccountsApi<ReturnType<typeof getStudentAccounts>[number]>();
+  } catch (error) {
+    console.error('Failed to load student account list from API:', error);
+    return getStudentAccounts();
+  }
 };

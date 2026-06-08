@@ -1,10 +1,9 @@
 import { getTeachers } from './studentData';
 import {
-  getCloudTable,
-  isCloudDatabaseConfigured,
-  setCloudTable,
-  subscribeCloudTable,
-} from './firestoreDatabase';
+  readDatabaseOnline,
+  subscribeDatabaseTable,
+  writeDatabaseOnline,
+} from './database';
 
 export type CalendarEventType = 'academic' | 'meeting' | 'deadline' | 'holiday' | 'event' | 'task';
 export type CalendarAssignment = 'all' | 'teachers' | string[];
@@ -105,11 +104,9 @@ export const saveSchoolCalendarEvents = (events: CalendarEvent[]) => {
   window.localStorage.setItem(SCHOOL_CALENDAR_STORAGE_KEY, JSON.stringify(events));
   window.dispatchEvent(new CustomEvent(SCHOOL_CALENDAR_UPDATED_EVENT));
 
-  if (isCloudDatabaseConfigured()) {
-    void setCloudTable<SchoolCalendarStore>(SCHOOL_CALENDAR_CLOUD_TABLE, { events }).catch((error) => {
-      console.error('Failed to sync school calendar to cloud:', error);
-    });
-  }
+  void writeDatabaseOnline(SCHOOL_CALENDAR_CLOUD_TABLE, { events }).catch((error) => {
+    console.error('Failed to sync school calendar to cloud:', error);
+  });
 };
 
 const normalizeCalendarStore = (value: unknown): CalendarEvent[] | null => {
@@ -129,17 +126,15 @@ const persistCalendarLocally = (events: CalendarEvent[]) => {
 };
 
 export const loadSchoolCalendarEventsOnline = async () => {
-  if (isCloudDatabaseConfigured()) {
-    try {
-      const cloudValue = await getCloudTable<SchoolCalendarStore | CalendarEvent[]>(SCHOOL_CALENDAR_CLOUD_TABLE);
-      const cloudEvents = normalizeCalendarStore(cloudValue);
-      if (cloudEvents) {
-        persistCalendarLocally(cloudEvents);
-        return cloudEvents;
-      }
-    } catch (error) {
-      console.error('Failed to load school calendar from cloud:', error);
+  try {
+    const cloudValue = await readDatabaseOnline<SchoolCalendarStore | CalendarEvent[]>(SCHOOL_CALENDAR_CLOUD_TABLE);
+    const cloudEvents = normalizeCalendarStore(cloudValue);
+    if (cloudEvents) {
+      persistCalendarLocally(cloudEvents);
+      return cloudEvents;
     }
+  } catch (error) {
+    console.error('Failed to load school calendar from cloud:', error);
   }
 
   return loadSchoolCalendarEvents();
@@ -159,20 +154,18 @@ export const subscribeSchoolCalendarEvents = (
   window.addEventListener('storage', handleStorage);
   refreshFromLocal();
 
-  const unsubscribeCloud = isCloudDatabaseConfigured()
-    ? subscribeCloudTable<SchoolCalendarStore | CalendarEvent[]>(
-      SCHOOL_CALENDAR_CLOUD_TABLE,
-      (cloudValue) => {
-        const cloudEvents = normalizeCalendarStore(cloudValue);
-        if (!cloudEvents) return;
-        persistCalendarLocally(cloudEvents);
-        callback(cloudEvents);
-      },
-      (error) => {
-        console.error('School calendar cloud listener failed:', error);
-      },
-    )
-    : () => {};
+  const unsubscribeCloud = subscribeDatabaseTable<SchoolCalendarStore | CalendarEvent[]>(
+    SCHOOL_CALENDAR_CLOUD_TABLE,
+    (cloudValue) => {
+      const cloudEvents = normalizeCalendarStore(cloudValue);
+      if (!cloudEvents) return;
+      persistCalendarLocally(cloudEvents);
+      callback(cloudEvents);
+    },
+    (error) => {
+      console.error('School calendar cloud listener failed:', error);
+    },
+  );
 
   return () => {
     window.removeEventListener(SCHOOL_CALENDAR_UPDATED_EVENT, refreshFromLocal);

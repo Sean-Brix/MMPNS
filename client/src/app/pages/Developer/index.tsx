@@ -17,11 +17,6 @@ import {
   X,
 } from 'lucide-react';
 
-import credentialsSeed from '../../../data/seeds/credentials.json';
-import facultySeed from '../../../data/seeds/faculty.json';
-import alumniSeed from '../../../data/seeds/alumni.json';
-import pagesSeed from '../../../data/seeds/pages.json';
-import schoolYearsSeed from '../../../data/seeds/school_years.json';
 import {
   authenticateAdminOnline,
   clearAdminSession,
@@ -31,7 +26,7 @@ import {
   type StudentCredential,
   type TeacherCredential,
 } from '../../../utils/auth';
-import { initializeDatabase, readDatabase, writeDatabase } from '../../../utils/database';
+import { initializeDatabase, readDatabase, readSeedSnapshotOnline, writeDatabase } from '../../../utils/database';
 import { HOME_IMAGE_EDIT_MODE_KEY, HOME_IMAGE_STORAGE_KEY } from '../../../utils/homeImageSlots';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
 
@@ -47,6 +42,7 @@ interface AdminSession {
   initials: string;
   role: string;
   email: string;
+  token?: string;
   authenticated: boolean;
   loginTime: string;
 }
@@ -339,7 +335,8 @@ export const Developer: React.FC = () => {
       return;
     }
 
-    saveAdminSession(result.admin);
+    saveAdminSession(result.admin, result.token);
+    await initializeDatabase();
     const nextSession = getAdminSession() as AdminSession | null;
 
     setSession(nextSession);
@@ -347,6 +344,7 @@ export const Developer: React.FC = () => {
     setIsAuthenticated(true);
     setUsername('');
     setPassword('');
+    refreshCounts();
     showBanner('success', `Welcome ${result.admin.displayName}.`);
   };
 
@@ -363,6 +361,12 @@ export const Developer: React.FC = () => {
       const current = getCredentialsDb();
 
       if (action === 'add-sample') {
+        const credentialsSeed = await readSeedSnapshotOnline<CredentialsDb>('users');
+        if (!credentialsSeed) {
+          showBanner('error', 'Cloud seed snapshot for users is not available yet.');
+          return;
+        }
+
         const nextAdmins = uniqueBy(
           [...(current.admins || []), ...(credentialsSeed.admins as AdminCredential[])],
           (admin) => admin.username,
@@ -392,15 +396,11 @@ export const Developer: React.FC = () => {
       }
 
       if (action === 'delete-all') {
-        const preservedAdmins = (current.admins || []).length > 0
-          ? current.admins
-          : (credentialsSeed.admins as AdminCredential[]);
-
         const success = writeDatabase('credentials', {
           ...current,
           teachers: [],
           students: [],
-          admins: preservedAdmins,
+          admins: current.admins || [],
         });
 
         if (!success) {
@@ -416,6 +416,12 @@ export const Developer: React.FC = () => {
       const current = readDatabase<{ alumni?: any[] }>('alumni') || { alumni: [] };
 
       if (action === 'add-sample') {
+        const alumniSeed = await readSeedSnapshotOnline<{ alumni?: any[] }>('alumni');
+        if (!alumniSeed) {
+          showBanner('error', 'Cloud seed snapshot for alumni is not available yet.');
+          return;
+        }
+
         const merged = uniqueBy(
           [...(current.alumni || []), ...((alumniSeed as any).alumni || [])],
           (item) => `${item.name || ''}-${item.batch || ''}`,
@@ -446,11 +452,15 @@ export const Developer: React.FC = () => {
       const existingSlides = Array.isArray(current?.home?.heroSlides) ? current.home.heroSlides : [];
       const existingHeroes = existingSlides.filter((slide: any) => slide?.type === 'hero');
       const existingEvents = existingSlides.filter((slide: any) => slide?.type === 'announcement' || slide?.type === 'bulletin');
-      const seededEvents = Array.isArray((pagesSeed as any)?.home?.heroSlides)
-        ? (pagesSeed as any).home.heroSlides.filter((slide: any) => slide?.type === 'announcement' || slide?.type === 'bulletin')
-        : [];
 
       if (action === 'add-sample') {
+        const eventsSeed = await readSeedSnapshotOnline<{ heroSlides?: any[] }>('events');
+        if (!eventsSeed) {
+          showBanner('error', 'Cloud seed snapshot for events is not available yet.');
+          return;
+        }
+
+        const seededEvents = Array.isArray(eventsSeed.heroSlides) ? eventsSeed.heroSlides : [];
         const mergedEvents = uniqueBy(
           [...existingEvents, ...seededEvents],
           (slide) => String(slide.id || slide.title || ''),
@@ -494,6 +504,12 @@ export const Developer: React.FC = () => {
       const current = readDatabase<{ staff?: any[] }>('faculty') || { staff: [] };
 
       if (action === 'add-sample') {
+        const facultySeed = await readSeedSnapshotOnline<{ staff?: any[] }>('faculty');
+        if (!facultySeed) {
+          showBanner('error', 'Cloud seed snapshot for faculty is not available yet.');
+          return;
+        }
+
         const merged = uniqueBy(
           [...(current.staff || []), ...((facultySeed as any).staff || [])],
           (item) => String(item.name || ''),
@@ -521,9 +537,15 @@ export const Developer: React.FC = () => {
 
     if (key === 'schoolYears') {
       const current = readDatabase<any>('school_years') || {};
-      const seedYears = Array.isArray((schoolYearsSeed as any).school_years) ? (schoolYearsSeed as any).school_years : [];
 
       if (action === 'add-sample') {
+        const schoolYearsSeed = await readSeedSnapshotOnline<{ school_years?: any[] }>('schoolYears');
+        if (!schoolYearsSeed) {
+          showBanner('error', 'Cloud seed snapshot for school years is not available yet.');
+          return;
+        }
+
+        const seedYears = Array.isArray(schoolYearsSeed.school_years) ? schoolYearsSeed.school_years : [];
         const merged = uniqueBy(
           [...(Array.isArray(current.school_years) ? current.school_years : []), ...seedYears],
           (item) => String(item.id || item.name || item.school_year || ''),
@@ -633,7 +655,7 @@ export const Developer: React.FC = () => {
       return;
     }
 
-    saveAdminSession(updatedAdmin);
+    saveAdminSession(updatedAdmin, session.token);
     const nextSession = getAdminSession() as AdminSession | null;
     setSession(nextSession);
     setSettingsPassword('');

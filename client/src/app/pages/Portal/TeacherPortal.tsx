@@ -14,7 +14,7 @@ import {
   saveTeacherSession,
   getTeacherSession,
   clearTeacherSession,
-  getTeacherAccounts,
+  getTeacherAccountsOnline,
 } from '../../../utils/auth';
 import { initializeDatabase, readDatabaseOnline, writeDatabaseOnline } from '../../../utils/database';
 import { HOME_IMAGE_EDIT_MODE_KEY } from '../../../utils/homeImageSlots';
@@ -327,6 +327,7 @@ export const TeacherPortal: React.FC = () => {
   const [installHint, setInstallHint] = useState('');
   const [teacherInfo, setTeacherInfo] = useState<{ username?: string; displayName: string; initials: string; department: string; position: string; employeeId?: string } | null>(null);
   const [showDemoAccounts, setShowDemoAccounts] = useState(false);
+  const [demoAccounts, setDemoAccounts] = useState<Awaited<ReturnType<typeof getTeacherAccountsOnline>>>([]);
   const [homeImageEditModeEnabled, setHomeImageEditModeEnabled] = useState(false);
   const onboardingTouchStartX = useRef<number | null>(null);
 
@@ -374,6 +375,11 @@ export const TeacherPortal: React.FC = () => {
     // Force re-init credentials to pick up new accounts (e.g. principal)
     localStorage.removeItem('mmpns_db_credentials');
     initializeDatabase();
+    void getTeacherAccountsOnline().then((accounts) => {
+      if (!isCancelled) {
+        setDemoAccounts(accounts);
+      }
+    });
     setHomeImageEditModeEnabled(localStorage.getItem(HOME_IMAGE_EDIT_MODE_KEY) === 'true');
 
     const session = getTeacherSession();
@@ -691,7 +697,7 @@ export const TeacherPortal: React.FC = () => {
 
     const result = await authenticateTeacherOnline(username, password);
     if (result.success && result.teacher) {
-      saveTeacherSession(result.teacher);
+      saveTeacherSession(result.teacher, result.token);
 
       if (result.teacher.position === 'Admin') {
         setIsSigningIn(false);
@@ -739,7 +745,6 @@ export const TeacherPortal: React.FC = () => {
 
   const isPrincipal = teacherInfo?.position === 'Principal';
   const isAdminRole = teacherInfo?.position === 'Admin';
-  const demoAccounts = getTeacherAccounts();
 
   // ── Data handlers ──
   const updateGrade = (studentId: string, activityId: string, score: number | null) => {
@@ -1181,12 +1186,12 @@ export const TeacherPortal: React.FC = () => {
                 <p className="mt-3 text-[11px] text-gray-500 text-center leading-relaxed">{installHint}</p>
               )}
 
-              {/* Demo credentials */}
+              {/* Demo accounts */}
               <div className="mt-5">
                 <button type="button" onClick={() => setShowDemoAccounts(!showDemoAccounts)}
                   className="w-full flex items-center justify-center gap-2 text-[11px] text-gray-400 font-bold uppercase tracking-wider hover:text-[#185C20] transition-colors py-2">
                   <Sparkles size={12} />
-                  {showDemoAccounts ? 'Hide' : 'Show'} Demo Credentials
+                  {showDemoAccounts ? 'Hide' : 'Show'} Demo Accounts
                   <ChevronDown size={12} className={`transition-transform ${showDemoAccounts ? 'rotate-180' : ''}`} />
                 </button>
                 <AnimatePresence>
@@ -1196,7 +1201,7 @@ export const TeacherPortal: React.FC = () => {
                       <div className="pt-2 space-y-1.5">
                         {demoAccounts.map((acc, idx) => (
                           <button key={idx} type="button"
-                            onClick={() => { setUsername(acc.username); setPassword(acc.password); }}
+                            onClick={() => { setUsername(acc.username); setPassword(''); }}
                             className={`w-full flex items-center gap-3 p-2.5 rounded-xl border border-transparent transition-all text-left group ${
                               acc.position === 'Principal' || acc.position === 'Admin'
                                 ? 'bg-[#EDCD1F]/10 hover:bg-[#EDCD1F]/20 hover:border-[#EDCD1F]/30'
@@ -1233,7 +1238,7 @@ export const TeacherPortal: React.FC = () => {
                           </button>
                         ))}
                         <p className="text-[10px] text-gray-400 text-center pt-1">
-                          Click any account to auto-fill credentials
+                          Click any account to fill the username
                         </p>
                       </div>
                     </motion.div>
