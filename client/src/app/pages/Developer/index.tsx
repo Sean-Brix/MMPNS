@@ -9,6 +9,8 @@ import {
   Lock,
   LogOut,
   Menu,
+  Pencil,
+  Plus,
   RefreshCw,
   Save,
   Settings,
@@ -30,11 +32,13 @@ import { initializeDatabase, readDatabase, readSeedSnapshotOnline, writeDatabase
 import { HOME_IMAGE_EDIT_MODE_KEY, HOME_IMAGE_STORAGE_KEY } from '../../../utils/homeImageSlots';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
 
-type DeveloperTab = 'seeding' | 'settings';
+type DeveloperTab = 'seeding' | 'userManagement' | 'settings';
 type BannerType = 'success' | 'error' | 'info';
 
 type SeedKey = 'users' | 'alumni' | 'events' | 'faculty' | 'schoolYears';
 type SeedAction = 'add-sample' | 'delete-all';
+type AccountType = 'admins' | 'teachers' | 'students';
+type AccountKind = 'teacher' | 'student' | 'librarian' | 'principal' | 'registrar' | 'systemAdmin' | 'superadmin';
 
 interface AdminSession {
   id: number;
@@ -71,9 +75,155 @@ interface ConfirmState {
   action?: () => void;
 }
 
+interface AccountFormState {
+  accountType: AccountType;
+  accountKind: AccountKind;
+  username: string;
+  studentId: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  initials: string;
+  email: string;
+  role: string;
+  department: string;
+  position: string;
+  employeeId: string;
+  subjects: string;
+  advisoryClass: string;
+  gradeLevel: string;
+  section: string;
+  lrn: string;
+  guardianName: string;
+  guardianContact: string;
+  status: string;
+}
+
+interface ManagedAccountRow {
+  accountType: AccountType;
+  account: AdminCredential | TeacherCredential | StudentCredential;
+}
+
 const ALLOWED_ROLES = new Set(['admin', 'superadmin']);
 
 const FACEBOOK_TOKEN_STORAGE_KEY = 'mmpns_fb_page_access_token';
+
+const accountTypeLabels: Record<AccountType, string> = {
+  admins: 'Admins',
+  teachers: 'Teachers',
+  students: 'Students',
+};
+
+const accountKindOptions: Array<{ kind: AccountKind; label: string }> = [
+  { kind: 'teacher', label: 'Teacher' },
+  { kind: 'student', label: 'Student' },
+  { kind: 'librarian', label: 'Librarian' },
+  { kind: 'principal', label: 'Principal' },
+  { kind: 'registrar', label: 'Registrar' },
+  { kind: 'systemAdmin', label: 'System Admin' },
+  { kind: 'superadmin', label: 'Dev/Superadmin' },
+];
+
+const accountTypes: AccountType[] = ['admins', 'teachers', 'students'];
+
+const getAccountTypeForKind = (kind: AccountKind): AccountType => {
+  if (kind === 'student') {
+    return 'students';
+  }
+
+  if (kind === 'systemAdmin' || kind === 'superadmin') {
+    return 'admins';
+  }
+
+  return 'teachers';
+};
+
+const getDefaultRoleForKind = (kind: AccountKind) => (kind === 'superadmin' ? 'superadmin' : 'admin');
+
+const getDefaultDepartmentForKind = (kind: AccountKind) => {
+  if (kind === 'librarian') return 'Library';
+  if (kind === 'registrar') return 'Registrar';
+  if (kind === 'principal') return 'Administration';
+  return '';
+};
+
+const getDefaultPositionForKind = (kind: AccountKind) => {
+  if (kind === 'librarian') return 'Librarian';
+  if (kind === 'registrar') return 'Registrar';
+  if (kind === 'principal') return 'Principal';
+  if (kind === 'teacher') return 'Teacher';
+  return '';
+};
+
+const getAccountKindLabel = (kind: AccountKind) => (
+  accountKindOptions.find((option) => option.kind === kind)?.label || 'Account'
+);
+
+const deriveAccountKind = (accountType: AccountType, account: any): AccountKind => {
+  if (accountType === 'students') return 'student';
+  if (accountType === 'admins') return account.role === 'superadmin' ? 'superadmin' : 'systemAdmin';
+
+  const position = String(account.position || '').toLowerCase();
+  const department = String(account.department || '').toLowerCase();
+
+  if (position.includes('principal')) return 'principal';
+  if (position.includes('librarian') || department.includes('library')) return 'librarian';
+  if (position.includes('registrar') || department.includes('registrar')) return 'registrar';
+  return 'teacher';
+};
+
+const createEmptyAccountForm = (accountKind: AccountKind): AccountFormState => {
+  const accountType = getAccountTypeForKind(accountKind);
+  return {
+  accountType,
+  accountKind,
+  username: '',
+  studentId: '',
+  password: '',
+  firstName: '',
+  lastName: '',
+  displayName: '',
+  initials: '',
+  email: '',
+  role: accountType === 'admins' ? getDefaultRoleForKind(accountKind) : '',
+  department: getDefaultDepartmentForKind(accountKind),
+  position: getDefaultPositionForKind(accountKind),
+  employeeId: '',
+  subjects: '',
+  advisoryClass: '',
+  gradeLevel: '',
+  section: '',
+  lrn: '',
+  guardianName: '',
+  guardianContact: '',
+  status: 'active',
+  };
+};
+
+const getNextId = (items: Array<{ id?: number }>) => {
+  const ids = items.map((item) => Number(item.id)).filter((id) => Number.isFinite(id));
+  return ids.length ? Math.max(...ids) + 1 : 1;
+};
+
+const makeDisplayName = (form: AccountFormState, fallback: string) => {
+  return form.displayName.trim() || [form.firstName, form.lastName].map((value) => value.trim()).filter(Boolean).join(' ') || fallback;
+};
+
+const makeInitials = (form: AccountFormState, displayName: string) => {
+  return form.initials.trim() || displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+};
+
+const splitSubjects = (value: string) => value
+  .split(',')
+  .map((subject) => subject.trim())
+  .filter(Boolean);
 
 const getStatusStyles = (type: BannerType) => {
   if (type === 'success') {
@@ -199,7 +349,7 @@ export const Developer: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<DeveloperTab>('seeding');
+  const [activeTab, setActiveTab] = useState<DeveloperTab>('userManagement');
   const [session, setSession] = useState<AdminSession | null>(null);
 
   const [username, setUsername] = useState('');
@@ -219,6 +369,9 @@ export const Developer: React.FC = () => {
   const [settingsUsername, setSettingsUsername] = useState('');
   const [settingsPassword, setSettingsPassword] = useState('');
   const [settingsPasswordConfirm, setSettingsPasswordConfirm] = useState('');
+  const [accountForm, setAccountForm] = useState<AccountFormState>(() => createEmptyAccountForm('teacher'));
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
 
   const [facebookAccessToken, setFacebookAccessToken] = useState('');
   const [facebookTokenSaved, setFacebookTokenSaved] = useState(false);
@@ -602,6 +755,256 @@ export const Developer: React.FC = () => {
     });
   };
 
+  const resetAccountForm = (accountKind = accountForm.accountKind) => {
+    setAccountForm(createEmptyAccountForm(accountKind));
+    setEditingAccountId(null);
+  };
+
+  const updateAccountFormField = (field: keyof AccountFormState, value: string) => {
+    setAccountForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const setManagedAccountKind = (accountKind: AccountKind) => {
+    setAccountForm(createEmptyAccountForm(accountKind));
+    setEditingAccountId(null);
+  };
+
+  const openAddAccountModal = (accountKind: AccountKind = 'teacher') => {
+    resetAccountForm(accountKind);
+    setAccountModalOpen(true);
+  };
+
+  const closeAccountModal = () => {
+    setAccountModalOpen(false);
+    resetAccountForm();
+  };
+
+  const getAccountLogin = (accountType: AccountType, account: any) => (
+    accountType === 'students' ? String(account.studentId || '') : String(account.username || '')
+  );
+
+  const getAccountSubtitle = (accountType: AccountType, account: any) => {
+    if (accountType === 'admins') {
+      return account.role || 'admin';
+    }
+
+    if (accountType === 'teachers') {
+      return [account.department, account.position].filter(Boolean).join(' / ') || 'teacher';
+    }
+
+    return [account.gradeLevel, account.section].filter(Boolean).join(' / ') || 'student';
+  };
+
+  const startEditingAccount = (accountType: AccountType, account: any) => {
+    const accountKind = deriveAccountKind(accountType, account);
+
+    setAccountForm({
+      accountType,
+      accountKind,
+      username: account.username || '',
+      studentId: account.studentId || '',
+      password: '',
+      firstName: account.firstName || '',
+      lastName: account.lastName || '',
+      displayName: account.displayName || '',
+      initials: account.initials || '',
+      email: account.email || '',
+      role: account.role || (accountType === 'admins' ? 'admin' : ''),
+      department: account.department || '',
+      position: account.position || '',
+      employeeId: account.employeeId || '',
+      subjects: Array.isArray(account.subjects) ? account.subjects.join(', ') : '',
+      advisoryClass: account.advisoryClass || '',
+      gradeLevel: account.gradeLevel || '',
+      section: account.section || '',
+      lrn: account.lrn || '',
+      guardianName: account.guardianName || '',
+      guardianContact: account.guardianContact || '',
+      status: account.status || 'active',
+    });
+    setEditingAccountId(Number(account.id));
+    setAccountModalOpen(true);
+  };
+
+  const saveManagedAccount = () => {
+    const credentials = getCredentialsDb();
+    const accountType = getAccountTypeForKind(accountForm.accountKind);
+    const accounts = [...(credentials[accountType] || [])] as any[];
+    const existingIndex = editingAccountId === null ? -1 : accounts.findIndex((account) => account.id === editingAccountId);
+    const currentAccount = existingIndex >= 0 ? accounts[existingIndex] : null;
+    const loginValue = accountType === 'students' ? accountForm.studentId.trim() : accountForm.username.trim();
+
+    if (!loginValue) {
+      showBanner('error', accountType === 'students' ? 'Student ID is required.' : 'Username is required.');
+      return;
+    }
+
+    if (!accountForm.password.trim() && !currentAccount?.password) {
+      showBanner('error', 'Password is required for new accounts.');
+      return;
+    }
+
+    const loginTaken = accounts.some((account) => {
+      if (editingAccountId !== null && account.id === editingAccountId) {
+        return false;
+      }
+
+      return getAccountLogin(accountType, account).trim().toLowerCase() === loginValue.toLowerCase();
+    });
+
+    if (loginTaken) {
+      showBanner('error', accountType === 'students' ? 'That student ID is already used.' : 'That username is already used.');
+      return;
+    }
+
+    const status = accountForm.status.trim() || 'active';
+    const id = currentAccount?.id || getNextId(accounts);
+    const password = accountForm.password.trim() || currentAccount?.password || '';
+    const displayName = makeDisplayName(accountForm, loginValue);
+    const initials = makeInitials(accountForm, displayName);
+    let nextAccount: AdminCredential | TeacherCredential | StudentCredential;
+
+    if (accountType === 'admins') {
+      const role = getDefaultRoleForKind(accountForm.accountKind);
+
+      if (!ALLOWED_ROLES.has(role)) {
+        showBanner('error', 'Admin role must be admin or superadmin.');
+        return;
+      }
+
+      if (session?.id === id && (status !== 'active' || !ALLOWED_ROLES.has(role))) {
+        showBanner('error', 'You cannot remove developer access from the active session.');
+        return;
+      }
+
+      nextAccount = {
+        id,
+        username: loginValue,
+        password,
+        firstName: accountForm.firstName.trim(),
+        lastName: accountForm.lastName.trim(),
+        displayName,
+        initials,
+        email: accountForm.email.trim(),
+        role,
+        status,
+        lastLogin: currentAccount?.lastLogin || null,
+      };
+    } else if (accountType === 'teachers') {
+      nextAccount = {
+        id,
+        username: loginValue,
+        password,
+        firstName: accountForm.firstName.trim(),
+        lastName: accountForm.lastName.trim(),
+        displayName,
+        initials,
+        email: accountForm.email.trim(),
+        department: accountForm.department.trim() || getDefaultDepartmentForKind(accountForm.accountKind),
+        position: accountForm.position.trim() || getDefaultPositionForKind(accountForm.accountKind),
+        employeeId: accountForm.employeeId.trim(),
+        subjects: splitSubjects(accountForm.subjects),
+        advisoryClass: accountForm.advisoryClass.trim() || null,
+        status,
+        avatar: currentAccount?.avatar || null,
+        lastLogin: currentAccount?.lastLogin || null,
+      };
+    } else {
+      nextAccount = {
+        id,
+        studentId: loginValue,
+        password,
+        firstName: accountForm.firstName.trim(),
+        lastName: accountForm.lastName.trim(),
+        displayName,
+        initials,
+        email: accountForm.email.trim(),
+        gradeLevel: accountForm.gradeLevel.trim(),
+        section: accountForm.section.trim(),
+        lrn: accountForm.lrn.trim(),
+        guardianName: accountForm.guardianName.trim(),
+        guardianContact: accountForm.guardianContact.trim(),
+        status,
+        avatar: currentAccount?.avatar || null,
+        lastLogin: currentAccount?.lastLogin || null,
+      };
+    }
+
+    if (existingIndex >= 0) {
+      accounts[existingIndex] = nextAccount;
+    } else {
+      accounts.push(nextAccount);
+    }
+
+    const nextCredentials: CredentialsDb = {
+      ...credentials,
+      admins: [...(credentials.admins || [])],
+      teachers: [...(credentials.teachers || [])],
+      students: [...(credentials.students || [])],
+      [accountType]: accounts,
+    };
+
+    const success = writeDatabase('credentials', nextCredentials);
+    if (!success) {
+      showBanner('error', 'Failed to save account changes.');
+      return;
+    }
+
+    if (accountType === 'admins' && session?.id === nextAccount.id) {
+      saveAdminSession(nextAccount as AdminCredential, session.token);
+      setSession(getAdminSession() as AdminSession | null);
+      setSettingsUsername((nextAccount as AdminCredential).username);
+    }
+
+    showBanner('success', editingAccountId === null ? 'Account added.' : 'Account updated.');
+    setAccountModalOpen(false);
+    resetAccountForm(accountForm.accountKind);
+    refreshCounts();
+  };
+
+  const deleteManagedAccount = (accountType: AccountType, accountId: number) => {
+    const credentials = getCredentialsDb();
+    const accounts = [...(credentials[accountType] || [])] as any[];
+
+    if (accountType === 'admins' && session?.id === accountId) {
+      showBanner('error', 'You cannot delete the admin account you are using.');
+      return;
+    }
+
+    if (accountType === 'admins' && accounts.length <= 1) {
+      showBanner('error', 'At least one admin account must remain.');
+      return;
+    }
+
+    const nextCredentials: CredentialsDb = {
+      ...credentials,
+      admins: [...(credentials.admins || [])],
+      teachers: [...(credentials.teachers || [])],
+      students: [...(credentials.students || [])],
+      [accountType]: accounts.filter((account) => account.id !== accountId),
+    };
+
+    const success = writeDatabase('credentials', nextCredentials);
+    if (!success) {
+      showBanner('error', 'Failed to delete account.');
+      return;
+    }
+
+    showBanner('success', 'Account deleted.');
+    resetAccountForm();
+    refreshCounts();
+  };
+
+  const requestDeleteAccount = (accountType: AccountType, account: any) => {
+    openConfirm({
+      title: 'Delete account',
+      message: `This will remove ${account.displayName || getAccountLogin(accountType, account)} from ${accountTypeLabels[accountType]}.`,
+      confirmLabel: 'Delete account',
+      intent: 'danger',
+      action: () => deleteManagedAccount(accountType, account.id),
+    });
+  };
+
   const updateAdminCredentials = () => {
     if (!session) {
       showBanner('error', 'No active admin session found.');
@@ -683,6 +1086,7 @@ export const Developer: React.FC = () => {
   };
 
   const menuItems = [
+    { id: 'userManagement' as DeveloperTab, label: 'User Management', icon: User },
     { id: 'seeding' as DeveloperTab, label: 'Seeding', icon: Database },
     { id: 'settings' as DeveloperTab, label: 'Settings', icon: Settings },
   ];
@@ -697,6 +1101,14 @@ export const Developer: React.FC = () => {
       schoolYears: schoolYearsCount,
     };
   }, [usersCount, alumniCount, eventsCount, facultyCount, departmentsCount, schoolYearsCount]);
+
+  const credentialsForAccounts = getCredentialsDb();
+  const managedAccounts: ManagedAccountRow[] = accountTypes.flatMap((accountType) => (
+    (credentialsForAccounts[accountType] || []).map((account) => ({
+      accountType,
+      account,
+    }))
+  ));
 
   if (isLoading) {
     return (
@@ -860,7 +1272,11 @@ export const Developer: React.FC = () => {
               </button>
               <div className="min-w-0">
                 <h2 className="font-bold text-lg md:text-2xl text-[#185C20] truncate">
-                  {activeTab === 'seeding' ? 'Seeding Controls' : 'Developer Settings'}
+                  {activeTab === 'seeding'
+                    ? 'Seeding Controls'
+                    : activeTab === 'userManagement'
+                      ? 'User Management'
+                      : 'Developer Settings'}
                 </h2>
                 <p className="text-xs md:text-sm text-[#185C20]/50 mt-1 hidden sm:block">
                   Signed in as {session?.displayName} ({session?.role})
@@ -951,6 +1367,113 @@ export const Developer: React.FC = () => {
                       </div>
                     ))}
                   </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'userManagement' && (
+              <motion.div
+                key="userManagement"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                className="space-y-4"
+              >
+                <div className="bg-white rounded-2xl border border-[#185C20]/10 p-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold text-[#185C20]">User Management</h3>
+                    <p className="text-sm text-[#185C20]/60 mt-1">
+                      Manage every account in one place.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openAddAccountModal()}
+                    className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg bg-[#185C20] text-white text-sm font-semibold hover:bg-[#144a1a]"
+                  >
+                    <Plus size={14} />
+                    Add account
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-[#185C20]/10 overflow-hidden">
+                  <div className="px-5 py-4 border-b border-[#185C20]/10 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-[#185C20]">All Accounts</h3>
+                      <p className="text-sm text-[#185C20]/60 mt-1">{managedAccounts.length} account{managedAccounts.length === 1 ? '' : 's'}</p>
+                    </div>
+                  </div>
+
+                  {managedAccounts.length === 0 ? (
+                    <div className="px-5 py-8 text-center text-sm text-[#185C20]/50 font-semibold">
+                      No accounts found.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-[#185C20]/5 text-[#185C20]/60">
+                          <tr>
+                            <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Name</th>
+                            <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Type</th>
+                            <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Login</th>
+                            <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Details</th>
+                            <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Status</th>
+                            <th className="text-right px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#185C20]/10">
+                          {managedAccounts.map(({ accountType, account }) => (
+                            <tr key={`${accountType}-${account.id}`}>
+                              <td className="px-5 py-3 min-w-[220px]">
+                                <p className="font-bold text-[#185C20]">{account.displayName || getAccountLogin(accountType, account)}</p>
+                                <p className="text-xs text-[#185C20]/50">{account.email || '-'}</p>
+                              </td>
+                              <td className="px-5 py-3 min-w-[120px]">
+                                <span className="inline-flex px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#EDCD1F]/20 text-[#185C20] border border-[#EDCD1F]/40">
+                                  {getAccountKindLabel(deriveAccountKind(accountType, account))}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3 text-[#185C20]/70 font-semibold min-w-[150px]">
+                                {getAccountLogin(accountType, account)}
+                              </td>
+                              <td className="px-5 py-3 text-[#185C20]/70 min-w-[180px]">
+                                {getAccountSubtitle(accountType, account)}
+                              </td>
+                              <td className="px-5 py-3">
+                                <span className={`inline-flex px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                  account.status === 'active'
+                                    ? 'bg-green-50 text-green-700 border border-green-200'
+                                    : 'bg-gray-100 text-gray-500 border border-gray-200'
+                                }`}>
+                                  {account.status || 'active'}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingAccount(accountType, account)}
+                                    className="w-8 h-8 rounded-lg border border-[#185C20]/15 text-[#185C20] hover:bg-[#185C20]/5 inline-flex items-center justify-center"
+                                    aria-label="Edit account"
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => requestDeleteAccount(accountType, account)}
+                                    className="w-8 h-8 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 inline-flex items-center justify-center"
+                                    aria-label="Delete account"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -1081,6 +1604,244 @@ export const Developer: React.FC = () => {
           </AnimatePresence>
         </main>
       </div>
+
+      {accountModalOpen && (
+        <div className="fixed inset-0 z-[75] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeAccountModal}>
+          <div
+            className="w-full max-w-5xl max-h-[92vh] overflow-hidden rounded-2xl bg-white border border-[#185C20]/10 shadow-2xl flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#185C20]/10">
+              <div>
+                <h3 className="text-lg font-bold text-[#185C20]">
+                  {editingAccountId === null ? 'Add Account' : 'Edit Account'}
+                </h3>
+                <p className="text-xs text-[#185C20]/60 mt-1">
+                  {editingAccountId === null ? 'Choose an account type and enter login details.' : getAccountKindLabel(accountForm.accountKind)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAccountModal}
+                className="w-8 h-8 rounded-lg hover:bg-[#185C20]/5 text-[#185C20]/50 hover:text-[#185C20] transition-colors flex items-center justify-center"
+                aria-label="Close account modal"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Account Type</label>
+                  <select
+                    value={accountForm.accountKind}
+                    onChange={(event) => setManagedAccountKind(event.target.value as AccountKind)}
+                    disabled={editingAccountId !== null}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20 bg-white disabled:bg-gray-50 disabled:text-gray-500"
+                  >
+                    {accountKindOptions.map((option) => (
+                      <option key={option.kind} value={option.kind}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">
+                    {getAccountTypeForKind(accountForm.accountKind) === 'students' ? 'Student ID' : 'Username'}
+                  </label>
+                  <input
+                    value={getAccountTypeForKind(accountForm.accountKind) === 'students' ? accountForm.studentId : accountForm.username}
+                    onChange={(event) => updateAccountFormField(
+                      getAccountTypeForKind(accountForm.accountKind) === 'students' ? 'studentId' : 'username',
+                      event.target.value,
+                    )}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Password</label>
+                  <input
+                    type="password"
+                    value={accountForm.password}
+                    onChange={(event) => updateAccountFormField('password', event.target.value)}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                    placeholder={editingAccountId === null ? '' : 'Leave blank to keep'}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Status</label>
+                  <select
+                    value={accountForm.status}
+                    onChange={(event) => updateAccountFormField('status', event.target.value)}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20 bg-white"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">First Name</label>
+                  <input
+                    value={accountForm.firstName}
+                    onChange={(event) => updateAccountFormField('firstName', event.target.value)}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Last Name</label>
+                  <input
+                    value={accountForm.lastName}
+                    onChange={(event) => updateAccountFormField('lastName', event.target.value)}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Display Name</label>
+                  <input
+                    value={accountForm.displayName}
+                    onChange={(event) => updateAccountFormField('displayName', event.target.value)}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Initials</label>
+                  <input
+                    value={accountForm.initials}
+                    onChange={(event) => updateAccountFormField('initials', event.target.value)}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Email</label>
+                  <input
+                    type="email"
+                    value={accountForm.email}
+                    onChange={(event) => updateAccountFormField('email', event.target.value)}
+                    className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                  />
+                </div>
+
+                {getAccountTypeForKind(accountForm.accountKind) === 'teachers' && (
+                  <>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Department</label>
+                      <input
+                        value={accountForm.department}
+                        onChange={(event) => updateAccountFormField('department', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Position</label>
+                      <input
+                        value={accountForm.position}
+                        onChange={(event) => updateAccountFormField('position', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Employee ID</label>
+                      <input
+                        value={accountForm.employeeId}
+                        onChange={(event) => updateAccountFormField('employeeId', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Advisory Class</label>
+                      <input
+                        value={accountForm.advisoryClass}
+                        onChange={(event) => updateAccountFormField('advisoryClass', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div className="md:col-span-2 xl:col-span-4">
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Subjects</label>
+                      <input
+                        value={accountForm.subjects}
+                        onChange={(event) => updateAccountFormField('subjects', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                        placeholder="Comma-separated"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {accountForm.accountKind === 'student' && (
+                  <>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Grade Level</label>
+                      <input
+                        value={accountForm.gradeLevel}
+                        onChange={(event) => updateAccountFormField('gradeLevel', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Section</label>
+                      <input
+                        value={accountForm.section}
+                        onChange={(event) => updateAccountFormField('section', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">LRN</label>
+                      <input
+                        value={accountForm.lrn}
+                        onChange={(event) => updateAccountFormField('lrn', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Guardian Contact</label>
+                      <input
+                        value={accountForm.guardianContact}
+                        onChange={(event) => updateAccountFormField('guardianContact', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="text-[11px] uppercase tracking-wider font-bold text-[#185C20]/60">Guardian Name</label>
+                      <input
+                        value={accountForm.guardianName}
+                        onChange={(event) => updateAccountFormField('guardianName', event.target.value)}
+                        className="mt-1 w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-[#185C20]/10 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeAccountModal}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-[#185C20]/15 text-[#185C20] hover:bg-[#185C20]/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveManagedAccount}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#185C20] text-white text-sm font-semibold hover:bg-[#144a1a]"
+              >
+                {editingAccountId === null ? <Plus size={14} /> : <Save size={14} />}
+                {editingAccountId === null ? 'Add account' : 'Save account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ModalConfirm state={confirmState} onClose={closeConfirm} />
     </div>

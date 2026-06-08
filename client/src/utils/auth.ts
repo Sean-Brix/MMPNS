@@ -3,8 +3,6 @@
 
 import {
   authenticateApiAccount,
-  getDemoStudentAccountsApi,
-  getDemoTeacherAccountsApi,
 } from './apiClient';
 import {
   initializeDatabase,
@@ -325,48 +323,3 @@ export const clearAdminSession = () => {
   localStorage.removeItem(ADMIN_SESSION_KEY);
 };
 
-// Get all teacher accounts (for demo account display)
-export const getTeacherAccounts = (): Pick<TeacherCredential, 'username' | 'displayName' | 'department' | 'position'>[] => {
-  const db = ensureDB();
-  if (!db || !db.teachers) return [];
-  return db.teachers
-    .filter((t) => t.status === 'active')
-    .map((t) => ({
-      username: t.username,
-      displayName: t.displayName,
-      department: t.department,
-      position: t.position,
-    }));
-};
-
-// Get all student accounts (for demo credentials display)
-export const getStudentAccounts = (): Pick<StudentCredential, 'studentId' | 'displayName' | 'gradeLevel' | 'section'>[] => {
-  const db = ensureDB();
-  if (!db || !db.students) return [];
-  return db.students
-    .filter((s) => s.status === 'active')
-    .map((s) => ({
-      studentId: s.studentId,
-      displayName: s.displayName,
-      gradeLevel: s.gradeLevel,
-      section: s.section,
-    }));
-};
-
-export const getTeacherAccountsOnline = async () => {
-  try {
-    return await getDemoTeacherAccountsApi<ReturnType<typeof getTeacherAccounts>[number]>();
-  } catch (error) {
-    console.error('Failed to load teacher account list from API:', error);
-    return getTeacherAccounts();
-  }
-};
-
-export const getStudentAccountsOnline = async () => {
-  try {
-    return await getDemoStudentAccountsApi<ReturnType<typeof getStudentAccounts>[number]>();
-  } catch (error) {
-    console.error('Failed to load student account list from API:', error);
-    return getStudentAccounts();
-  }
-};

@@ -97,16 +97,6 @@ export const authenticateApiAccount = async <T = any>(
   });
 };
 
-export const getDemoTeacherAccountsApi = async <T = any>(): Promise<T[]> => {
-  const result = await apiFetch<{ teachers: T[] }>('/auth/demo/teachers');
-  return result.teachers;
-};
-
-export const getDemoStudentAccountsApi = async <T = any>(): Promise<T[]> => {
-  const result = await apiFetch<{ students: T[] }>('/auth/demo/students');
-  return result.students;
-};
-
 export const getApiTable = async <T = any>(table: string): Promise<T | null> => {
   try {
     const result = await apiFetch<{ table: string; payload: T }>(`/tables/${encodeURIComponent(table)}`);

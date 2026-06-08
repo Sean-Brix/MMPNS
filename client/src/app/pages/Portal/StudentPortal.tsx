@@ -12,7 +12,6 @@ import {
   saveStudentSession,
   getStudentSession,
   clearStudentSession,
-  getStudentAccountsOnline,
 } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
 
@@ -26,13 +25,10 @@ export const StudentPortal: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [studentInfo, setStudentInfo] = useState<{ displayName: string; initials: string; gradeLevel: string; section: string } | null>(null);
-  const [showDemoAccounts, setShowDemoAccounts] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const [demoAccounts, setDemoAccounts] = useState<Awaited<ReturnType<typeof getStudentAccountsOnline>>>([]);
 
   useEffect(() => {
     void initializeDatabase();
-    void getStudentAccountsOnline().then(setDemoAccounts);
     const session = getStudentSession();
     if (session) {
       setIsAuthenticated(true);
@@ -176,36 +172,6 @@ export const StudentPortal: React.FC = () => {
               </button>
             </form>
 
-            <div className="mt-6 p-4 bg-[#EDCD1F]/10 rounded-xl">
-              <button
-                type="button"
-                onClick={() => setShowDemoAccounts(!showDemoAccounts)}
-                className="w-full text-xs text-[#185C20]/60 text-center font-bold hover:text-[#185C20] transition-colors"
-              >
-                {showDemoAccounts ? 'Hide' : 'Show'} Demo Accounts
-              </button>
-              {showDemoAccounts && (
-                <div className="mt-3 space-y-2">
-                  {demoAccounts.map((acc, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setStudentId(acc.studentId);
-                        setPassword('');
-                      }}
-                      className="w-full text-left p-2.5 bg-white rounded-lg border border-[#185C20]/10 hover:border-[#185C20]/30 transition-all"
-                    >
-                      <p className="text-xs font-bold text-[#185C20]">{acc.displayName}</p>
-                      <p className="text-[10px] text-[#185C20]/50">{acc.gradeLevel} - {acc.section} &bull; ID: {acc.studentId}</p>
-                    </button>
-                  ))}
-                  <p className="text-[10px] text-[#185C20]/40 text-center mt-2">
-                    Select an account to fill the student ID.
-                  </p>
-                </div>
-              )}
-            </div>
           </motion.div>
         </div>
       </div>

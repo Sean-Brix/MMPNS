@@ -5,7 +5,7 @@ import {
   Bell, MoreHorizontal, Plus, Trash2, Download, ChevronRight,
   BarChart3, UserPlus, CheckCircle2, AlertTriangle, TrendingUp,
   Calculator, FileSpreadsheet, Settings, ClipboardList, ArrowUpDown,
-  Search, X, ChevronDown, Layers, Award, LayoutGrid, Sparkles,
+  Search, X, Layers, Award, LayoutGrid,
   Pencil, PencilOff, Check, SquareCheck, Square, MinusSquare,
   Shield, School, Calendar, UserCheck, Star, Target, Trophy, Clock, RefreshCw, ImagePlus, Tag, MapPin
 } from 'lucide-react';
@@ -14,7 +14,6 @@ import {
   saveTeacherSession,
   getTeacherSession,
   clearTeacherSession,
-  getTeacherAccountsOnline,
 } from '../../../utils/auth';
 import { initializeDatabase, readDatabaseOnline, writeDatabaseOnline } from '../../../utils/database';
 import { HOME_IMAGE_EDIT_MODE_KEY } from '../../../utils/homeImageSlots';
@@ -326,8 +325,6 @@ export const TeacherPortal: React.FC = () => {
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installHint, setInstallHint] = useState('');
   const [teacherInfo, setTeacherInfo] = useState<{ username?: string; displayName: string; initials: string; department: string; position: string; employeeId?: string } | null>(null);
-  const [showDemoAccounts, setShowDemoAccounts] = useState(false);
-  const [demoAccounts, setDemoAccounts] = useState<Awaited<ReturnType<typeof getTeacherAccountsOnline>>>([]);
   const [homeImageEditModeEnabled, setHomeImageEditModeEnabled] = useState(false);
   const onboardingTouchStartX = useRef<number | null>(null);
 
@@ -375,11 +372,6 @@ export const TeacherPortal: React.FC = () => {
     // Force re-init credentials to pick up new accounts (e.g. principal)
     localStorage.removeItem('mmpns_db_credentials');
     initializeDatabase();
-    void getTeacherAccountsOnline().then((accounts) => {
-      if (!isCancelled) {
-        setDemoAccounts(accounts);
-      }
-    });
     setHomeImageEditModeEnabled(localStorage.getItem(HOME_IMAGE_EDIT_MODE_KEY) === 'true');
 
     const session = getTeacherSession();
@@ -1185,66 +1177,6 @@ export const TeacherPortal: React.FC = () => {
               {installHint && (
                 <p className="mt-3 text-[11px] text-gray-500 text-center leading-relaxed">{installHint}</p>
               )}
-
-              {/* Demo accounts */}
-              <div className="mt-5">
-                <button type="button" onClick={() => setShowDemoAccounts(!showDemoAccounts)}
-                  className="w-full flex items-center justify-center gap-2 text-[11px] text-gray-400 font-bold uppercase tracking-wider hover:text-[#185C20] transition-colors py-2">
-                  <Sparkles size={12} />
-                  {showDemoAccounts ? 'Hide' : 'Show'} Demo Accounts
-                  <ChevronDown size={12} className={`transition-transform ${showDemoAccounts ? 'rotate-180' : ''}`} />
-                </button>
-                <AnimatePresence>
-                  {showDemoAccounts && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden">
-                      <div className="pt-2 space-y-1.5">
-                        {demoAccounts.map((acc, idx) => (
-                          <button key={idx} type="button"
-                            onClick={() => { setUsername(acc.username); setPassword(''); }}
-                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl border border-transparent transition-all text-left group ${
-                              acc.position === 'Principal' || acc.position === 'Admin'
-                                ? 'bg-[#EDCD1F]/10 hover:bg-[#EDCD1F]/20 hover:border-[#EDCD1F]/30'
-                                : 'bg-gray-50 hover:bg-[#185C20]/5 hover:border-[#185C20]/10'
-                            }`}>
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-                              acc.position === 'Principal' || acc.position === 'Admin'
-                                ? 'bg-[#EDCD1F]/20 group-hover:bg-[#EDCD1F]'
-                                : 'bg-[#185C20]/10 group-hover:bg-[#185C20]'
-                            }`}>
-                              {acc.position === 'Principal' || acc.position === 'Admin'
-                                ? <Shield size={14} className="text-[#185C20] group-hover:text-[#185C20]" />
-                                : <span className="text-[10px] font-bold text-[#185C20] group-hover:text-[#EDCD1F] transition-colors">
-                                    {acc.displayName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                                  </span>
-                              }
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold text-gray-700 truncate">{acc.displayName}</p>
-                              <p className="text-[10px] text-gray-400">
-                                {acc.position === 'Principal'
-                                  ? 'School Principal'
-                                  : acc.position === 'Admin'
-                                    ? 'Portal Administrator'
-                                    : `${acc.department} Dept.`}
-                              </p>
-                            </div>
-                            {(acc.position === 'Principal' || acc.position === 'Admin') && (
-                              <span className="text-[9px] font-bold bg-[#EDCD1F] text-[#185C20] px-1.5 py-0.5 rounded-full">
-                                {acc.position.toUpperCase()}
-                              </span>
-                            )}
-                            <ChevronRight size={14} className="text-gray-300 group-hover:text-[#185C20] transition-colors" />
-                          </button>
-                        ))}
-                        <p className="text-[10px] text-gray-400 text-center pt-1">
-                          Click any account to fill the username
-                        </p>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
             </div>
           </div>
         </motion.div>
