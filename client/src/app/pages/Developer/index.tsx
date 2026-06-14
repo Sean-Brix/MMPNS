@@ -19,15 +19,15 @@ import {
   X,
 } from 'lucide-react';
 
-import {
-  authenticateAdminOnline,
-  clearAdminSession,
-  getAdminSession,
-  saveAdminSession,
-  type AdminCredential,
-  type StudentCredential,
-  type TeacherCredential,
-} from '../../../utils/auth';
+import { logout } from '../../../utils/auth';
+// Legacy types kept for component compatibility (page is redirected to /superadmin)
+type AdminCredential = { username: string; password: string };
+type StudentCredential = { studentId: string; password: string };
+type TeacherCredential = { username: string; password: string };
+const authenticateAdminOnline = async (_u: string, _p: string) => ({ success: false, error: 'Redirected' });
+const clearAdminSession = () => { void logout(); };
+const getAdminSession = () => null;
+const saveAdminSession = (_c: AdminCredential, _t: string) => undefined;
 import { initializeDatabase, readDatabase, readSeedSnapshotOnline, writeDatabase } from '../../../utils/database';
 import { HOME_IMAGE_EDIT_MODE_KEY, HOME_IMAGE_STORAGE_KEY } from '../../../utils/homeImageSlots';
 import { useAppNavigate } from '../../hooks/useAppNavigate';

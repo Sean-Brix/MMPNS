@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { Sparkles } from 'lucide-react';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { SITE_IMAGE_DEFAULTS } from '../../../utils/siteImageSlots';
 
 interface StudentLifeHeroProps {
   studentLifeHeroImg: string;
@@ -21,6 +22,7 @@ export const StudentLifeHero: React.FC<StudentLifeHeroProps> = ({ studentLifeHer
         <div className="absolute inset-0 bg-black/40 z-10"></div>
         <ImageWithFallback 
           src={studentLifeHeroImg} 
+          fallbackSrc={SITE_IMAGE_DEFAULTS.studentLifeHero}
           alt="Student Life" 
           className="w-full h-full object-cover"
         />

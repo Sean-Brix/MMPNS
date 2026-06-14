@@ -1,5 +1,6 @@
+import { getFirebaseIdToken, isAdminRole, canManageAccounts } from './auth';
+
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
-const AUTH_SESSION_KEYS = ['adminAuth', 'teacherAuth', 'studentAuth'] as const;
 
 export class ApiError extends Error {
   status: number;
@@ -15,46 +16,12 @@ const apiUrl = (path: string) => {
   return `${API_BASE_URL}${normalizedPath}`;
 };
 
-const hasWindow = () => typeof window !== 'undefined';
-
-const readStoredSession = (key: typeof AUTH_SESSION_KEYS[number]) => {
-  if (!hasWindow()) {
-    return null;
-  }
-
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-export const getApiAuthToken = () => {
-  for (const key of AUTH_SESSION_KEYS) {
-    const session = readStoredSession(key);
-    if (session?.token) {
-      return String(session.token);
-    }
-  }
-
-  return '';
-};
-
-export const hasDeveloperAdminSession = () => {
-  const session = readStoredSession('adminAuth');
-  const role = String(session?.role || '').toLowerCase();
-  return Boolean(session?.token && (role === 'admin' || role === 'superadmin'));
-};
-
-const withAuthHeader = (headers?: HeadersInit) => {
+const withAuthHeader = async (headers?: HeadersInit): Promise<Headers> => {
   const nextHeaders = new Headers(headers);
-  const token = getApiAuthToken();
-
+  const token = await getFirebaseIdToken();
   if (token && !nextHeaders.has('Authorization')) {
     nextHeaders.set('Authorization', `Bearer ${token}`);
   }
-
   return nextHeaders;
 };
 
@@ -70,32 +37,38 @@ const readResponse = async <T>(response: Response): Promise<T> => {
 };
 
 export const apiFetch = async <T>(path: string, init: RequestInit = {}) => {
-  const response = await fetch(apiUrl(path), {
-    ...init,
-    headers: withAuthHeader(init.headers),
-  });
+  const headers = await withAuthHeader(init.headers);
+  const response = await fetch(apiUrl(path), { ...init, headers });
   return readResponse<T>(response);
 };
 
-export const authenticateApiAccount = async <T = any>(
-  accountType: 'teacher' | 'student' | 'admin',
-  credentials: Record<string, string>,
-) => {
-  return apiFetch<{
-    success: boolean;
-    teacher?: T;
-    student?: T;
-    admin?: T;
-    token?: string;
-    error?: string;
-  }>(`/auth/${accountType}`, {
+// ─── Account Management ───────────────────────────────────────────────────────
+
+export const getAccounts = () =>
+  apiFetch<{ users: any[] }>('/accounts');
+
+export const createAccount = (data: Record<string, any>) =>
+  apiFetch<{ success: boolean; user: any }>('/accounts', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(credentials),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
   });
-};
+
+export const updateAccountStatus = (uid: string, status: 'active' | 'inactive') =>
+  apiFetch<{ success: boolean }>(`/accounts/${uid}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+
+export const resetAccountPassword = (uid: string, password: string) =>
+  apiFetch<{ success: boolean }>(`/accounts/${uid}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+
+// ─── Table API (kept for existing features) ───────────────────────────────────
 
 export const getApiTable = async <T = any>(table: string): Promise<T | null> => {
   try {
@@ -105,7 +78,6 @@ export const getApiTable = async <T = any>(table: string): Promise<T | null> => 
     if (error instanceof ApiError && error.status === 404) {
       return null;
     }
-
     throw error;
   }
 };
@@ -113,19 +85,14 @@ export const getApiTable = async <T = any>(table: string): Promise<T | null> => 
 export const setApiTable = async <T = any>(table: string, payload: T): Promise<T> => {
   const result = await apiFetch<{ table: string; payload: T }>(`/tables/${encodeURIComponent(table)}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ payload }),
   });
-
   return result.payload;
 };
 
 export const deleteApiTable = async (table: string): Promise<void> => {
-  await apiFetch<void>(`/tables/${encodeURIComponent(table)}`, {
-    method: 'DELETE',
-  });
+  await apiFetch<void>(`/tables/${encodeURIComponent(table)}`, { method: 'DELETE' });
 };
 
 export const getApiSeedSnapshot = async <T = any>(key: string): Promise<T | null> => {
@@ -136,10 +103,11 @@ export const getApiSeedSnapshot = async <T = any>(key: string): Promise<T | null
     if (error instanceof ApiError && error.status === 404) {
       return null;
     }
-
     throw error;
   }
 };
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
 
 export const getStorageObjectUrl = async (objectPath: string): Promise<string | null> => {
   try {
@@ -151,7 +119,6 @@ export const getStorageObjectUrl = async (objectPath: string): Promise<string | 
     if (error instanceof ApiError && error.status === 404) {
       return null;
     }
-
     throw error;
   }
 };
@@ -173,3 +140,8 @@ export const uploadPrincipalImage = async (options: {
 
   return result.url;
 };
+
+// ─── Legacy helpers (kept for compatibility with existing features) ────────────
+
+export const hasDeveloperAdminSession = (): boolean => isAdminRole();
+export const canAccessAccountManagement = (): boolean => canManageAccounts();

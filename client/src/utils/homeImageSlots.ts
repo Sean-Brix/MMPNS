@@ -1,4 +1,5 @@
 import { PAGE_DEFAULT_IMAGES } from './siteDefaultImages';
+import { sanitizeStoredImageSrc } from './imageSource';
 
 export type HomeImageSlotKey =
   | 'heroMain'
@@ -25,6 +26,8 @@ export const HOME_IMAGE_DEFAULTS: Record<HomeImageSlotKey, string> = {
   academicJuniorHigh: PAGE_DEFAULT_IMAGES.home.academicJuniorHigh,
 };
 
+const HOME_IMAGE_SLOT_KEYS = Object.keys(HOME_IMAGE_DEFAULTS) as HomeImageSlotKey[];
+
 const getByteLength = (value: string) => {
   if (typeof TextEncoder !== 'undefined') {
     return new TextEncoder().encode(value).length;
@@ -47,7 +50,13 @@ export const readHomeImageSlots = (): Record<HomeImageSlotKey, string> => {
       return { ...HOME_IMAGE_DEFAULTS };
     }
     const parsed = JSON.parse(raw) as Partial<Record<HomeImageSlotKey, string>>;
-    return { ...HOME_IMAGE_DEFAULTS, ...parsed };
+    const mergedSlots = { ...HOME_IMAGE_DEFAULTS, ...parsed };
+
+    HOME_IMAGE_SLOT_KEYS.forEach((slot) => {
+      mergedSlots[slot] = sanitizeStoredImageSrc(mergedSlots[slot], HOME_IMAGE_DEFAULTS[slot]);
+    });
+
+    return mergedSlots;
   } catch {
     return { ...HOME_IMAGE_DEFAULTS };
   }

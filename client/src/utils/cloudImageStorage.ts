@@ -1,4 +1,4 @@
-import { getStorageObjectUrl, uploadPrincipalImage } from './apiClient';
+import { uploadPrincipalImage } from './apiClient';
 
 import {
   HOME_SLOT_SITE_IMAGE_KEY,
@@ -7,8 +7,10 @@ import {
   type HomeSlotSiteImageMap,
   type SiteDefaultImageKey,
 } from './siteDefaultImages';
+import { sanitizeStoredImageSrc } from './imageSource';
 
-const CLOUD_DEFAULT_IMAGE_CACHE_KEY = 'mmpns_cloud_default_image_urls_v1';
+// Bumped to v2 to clear any stale Firebase Storage URLs cached by previous sessions.
+const CLOUD_DEFAULT_IMAGE_CACHE_KEY = 'mmpns_cloud_default_image_urls_v2';
 
 export type SiteDefaultCloudUrlMap = Partial<Record<SiteDefaultImageKey, string>>;
 export type HomeDefaultImageMap = Record<keyof HomeSlotSiteImageMap, string>;
@@ -30,7 +32,14 @@ const readCachedMap = (): SiteDefaultCloudUrlMap => {
       return {};
     }
 
-    return JSON.parse(raw) as SiteDefaultCloudUrlMap;
+    const parsed = JSON.parse(raw) as SiteDefaultCloudUrlMap;
+    const sanitized: SiteDefaultCloudUrlMap = {};
+
+    for (const definition of SITE_DEFAULT_IMAGE_LIST) {
+      sanitized[definition.key] = sanitizeStoredImageSrc(parsed[definition.key], definition.localSrc);
+    }
+
+    return sanitized;
   } catch {
     return {};
   }
@@ -48,12 +57,24 @@ const persistCachedMap = (value: SiteDefaultCloudUrlMap) => {
   }
 };
 
-export const getCachedSiteDefaultImageUrls = () => {
-  return readCachedMap();
+const buildLocalMap = (): SiteDefaultCloudUrlMap => {
+  const map: SiteDefaultCloudUrlMap = {};
+  for (const definition of SITE_DEFAULT_IMAGE_LIST) {
+    map[definition.key] = definition.localSrc;
+  }
+  return map;
 };
 
-// Browser clients ask the Functions API for Cloud Storage URLs; bundled assets remain the fallback.
-export const syncSiteDefaultImagesToCloud = async () => {
+export const getCachedSiteDefaultImageUrls = (): SiteDefaultCloudUrlMap => {
+  const cached = readCachedMap();
+  if (Object.keys(cached).length === 0) {
+    return buildLocalMap();
+  }
+  return cached;
+};
+
+// Static site-default images are served from the public folder — no Firebase calls needed.
+export const syncSiteDefaultImagesToCloud = async (): Promise<SiteDefaultCloudUrlMap> => {
   if (!hasWindow()) {
     return {};
   }
@@ -63,23 +84,9 @@ export const syncSiteDefaultImagesToCloud = async () => {
   }
 
   syncInFlight = (async () => {
-    const cachedMap = readCachedMap();
-    const mergedMap: SiteDefaultCloudUrlMap = { ...cachedMap };
-
-    for (const definition of SITE_DEFAULT_IMAGE_LIST) {
-      if (mergedMap[definition.key]) {
-        continue;
-      }
-
-      const cloudUrl = await getStorageObjectUrl(definition.storagePath);
-
-      if (cloudUrl) {
-        mergedMap[definition.key] = cloudUrl;
-      }
-    }
-
-    persistCachedMap(mergedMap);
-    return mergedMap;
+    const map = buildLocalMap();
+    persistCachedMap(map);
+    return map;
   })();
 
   try {

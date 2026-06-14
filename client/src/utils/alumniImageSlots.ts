@@ -1,11 +1,11 @@
-import noImage from '../assets/no_image.png';
+import { sanitizeStoredImageSrc } from './imageSource';
 
 export const ALUMNI_IMAGE_STORAGE_KEY = 'mmpns_alumni_image_slots';
 
 export type AlumniImageSlotKey = 'registrationQr';
 
 export const ALUMNI_IMAGE_DEFAULTS: Record<AlumniImageSlotKey, string> = {
-  registrationQr: noImage,
+  registrationQr: '/images/no_image.png',
 };
 
 export const readAlumniImageSlots = (): Record<AlumniImageSlotKey, string> => {
@@ -16,10 +16,17 @@ export const readAlumniImageSlots = (): Record<AlumniImageSlotKey, string> => {
     }
 
     const parsed = JSON.parse(raw) as Partial<Record<AlumniImageSlotKey, string>>;
-    return {
+    const mergedSlots = {
       ...ALUMNI_IMAGE_DEFAULTS,
       ...parsed,
     };
+
+    mergedSlots.registrationQr = sanitizeStoredImageSrc(
+      mergedSlots.registrationQr,
+      ALUMNI_IMAGE_DEFAULTS.registrationQr,
+    );
+
+    return mergedSlots;
   } catch {
     return { ...ALUMNI_IMAGE_DEFAULTS };
   }

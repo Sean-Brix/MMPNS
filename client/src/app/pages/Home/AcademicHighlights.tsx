@@ -2,7 +2,7 @@ import React from 'react';
 import { ImagePlus } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
-import type { HomeImageSlotKey } from '../../../utils/homeImageSlots';
+import { HOME_IMAGE_DEFAULTS, type HomeImageSlotKey } from '../../../utils/homeImageSlots';
 
 interface AcademicHighlightsProps {
   setCurrentPage: (page: string) => void;
@@ -28,6 +28,7 @@ export const AcademicHighlights: React.FC<AcademicHighlightsProps> = ({
       img: kindergartenImg,
       desc: 'Safe, fun, and values-driven start for our youngest explorers.',
       imageSlot: 'academicKindergarten' as HomeImageSlotKey,
+      fallbackImg: HOME_IMAGE_DEFAULTS.academicKindergarten,
     },
     {
       title: 'Elementary',
@@ -35,6 +36,7 @@ export const AcademicHighlights: React.FC<AcademicHighlightsProps> = ({
       img: elementaryImg,
       desc: 'Comprehensive learning that ignites curiosity and logic.',
       imageSlot: 'academicElementary' as HomeImageSlotKey,
+      fallbackImg: HOME_IMAGE_DEFAULTS.academicElementary,
     },
     {
       title: 'Junior High',
@@ -42,6 +44,7 @@ export const AcademicHighlights: React.FC<AcademicHighlightsProps> = ({
       img: juniorHighImg,
       desc: 'Rigorous preparation for college and professional callings.',
       imageSlot: 'academicJuniorHigh' as HomeImageSlotKey,
+      fallbackImg: HOME_IMAGE_DEFAULTS.academicJuniorHigh,
     }
   ];
 
@@ -65,7 +68,12 @@ export const AcademicHighlights: React.FC<AcademicHighlightsProps> = ({
           {levels.map((level, i) => (
             <div key={level.title} className="group cursor-pointer" onClick={() => setCurrentPage('academics')}>
               <div className="relative rounded-2xl overflow-hidden mb-4 md:mb-6 aspect-[10/12]">
-                <ImageWithFallback src={level.img} alt={level.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                <ImageWithFallback
+                  src={level.img}
+                  fallbackSrc={level.fallbackImg}
+                  alt={level.title}
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#185C20]/90 via-transparent to-transparent opacity-60 md:opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                 <div className="absolute bottom-6 left-6 right-6 md:bottom-8 md:left-8 md:right-8 text-white translate-y-0 md:translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-[#EDCD1F] mb-1 md:mb-2">{level.label}</p>

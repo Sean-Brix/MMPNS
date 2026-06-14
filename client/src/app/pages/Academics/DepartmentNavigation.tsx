@@ -10,6 +10,7 @@ interface Level {
   subtitle: string;
   description: string;
   img: string;
+  fallbackImg?: string;
   stats: { label: string; value: string }[];
   highlights: string[];
 }
@@ -78,6 +79,7 @@ export const DepartmentNavigation: React.FC<DepartmentNavigationProps> = ({ leve
                   <div className="h-64 relative">
                     <ImageWithFallback 
                       src={level.img} 
+                      fallbackSrc={level.fallbackImg}
                       alt={level.title} 
                       className="w-full h-full object-cover" 
                     />

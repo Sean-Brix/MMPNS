@@ -1,21 +1,3 @@
-import aboutOrganizationalChart from '../../assets/about/organizational_chart.jpeg';
-import academicInstitutionalQuality from '../../assets/academic_programs/institutional_quality.png';
-import brandLogo from '../../assets/brand/logo.png';
-import homepageElementary from '../../assets/homepage/elementary.png';
-import homepageHeroMain from '../../assets/homepage/hero1.png';
-import homepageHeroGarden from '../../assets/homepage/hero2.png';
-import homepageJuniorHigh from '../../assets/homepage/junior_high.png';
-import homepageKindergarten from '../../assets/homepage/kindergarten.png';
-import homepageMariaPia from '../../assets/homepage/maria_pia.png';
-import noImage from '../assets/no_image.png';
-import studentLifeArtGuild from '../../assets/student_life/art_guild.png';
-import studentLifeBasketball from '../../assets/student_life/basketball.png';
-import studentLifeFireSafety from '../../assets/student_life/fireSafety.png';
-import studentLifeGleeClub from '../../assets/student_life/glee_club.png';
-import studentLifeHero from '../../assets/student_life/hero.png';
-import studentLifeIntramurals from '../../assets/student_life/intrmurals.png';
-import studentLifeSteward from '../../assets/student_life/steward.jpg';
-
 export type SiteDefaultImageKey =
   | 'aboutOrgChart'
   | 'academicInstitutionalQuality'
@@ -45,92 +27,92 @@ export interface SiteDefaultImageDefinition {
 export const SITE_DEFAULT_IMAGES: Record<SiteDefaultImageKey, SiteDefaultImageDefinition> = {
   aboutOrgChart: {
     key: 'aboutOrgChart',
-    localSrc: aboutOrganizationalChart,
+    localSrc: '/images/about/organizational_chart.jpeg',
     storagePath: 'site-defaults/about/organizational_chart.jpeg',
   },
   academicInstitutionalQuality: {
     key: 'academicInstitutionalQuality',
-    localSrc: academicInstitutionalQuality,
+    localSrc: '/images/academic_programs/institutional_quality.png',
     storagePath: 'site-defaults/academic_programs/institutional_quality.png',
   },
   alumniGalleryJames: {
     key: 'alumniGalleryJames',
-    localSrc: noImage,
+    localSrc: '/images/no_image.png',
     storagePath: 'site-defaults/alumni_gallery/james_profile.png',
   },
   alumniGalleryJamesVintage: {
     key: 'alumniGalleryJamesVintage',
-    localSrc: noImage,
+    localSrc: '/images/no_image.png',
     storagePath: 'site-defaults/alumni_gallery/james_vintage.png',
   },
   brandLogo: {
     key: 'brandLogo',
-    localSrc: brandLogo,
+    localSrc: '/images/brand/logo.png',
     storagePath: 'site-defaults/brand/logo.png',
   },
   sharedElementary: {
     key: 'sharedElementary',
-    localSrc: homepageElementary,
+    localSrc: '/images/homepage/elementary.png',
     storagePath: 'site-defaults/shared/elementary.png',
   },
   sharedJuniorHigh: {
     key: 'sharedJuniorHigh',
-    localSrc: homepageJuniorHigh,
+    localSrc: '/images/homepage/junior_high.png',
     storagePath: 'site-defaults/shared/junior_high.png',
   },
   sharedKindergarten: {
     key: 'sharedKindergarten',
-    localSrc: homepageKindergarten,
+    localSrc: '/images/homepage/kindergarten.png',
     storagePath: 'site-defaults/shared/kindergarten.png',
   },
   sharedMariaPia: {
     key: 'sharedMariaPia',
-    localSrc: homepageMariaPia,
+    localSrc: '/images/homepage/maria_pia.png',
     storagePath: 'site-defaults/shared/maria_pia.png',
   },
   homeHeroMain: {
     key: 'homeHeroMain',
-    localSrc: homepageHeroMain,
+    localSrc: '/images/homepage/hero1.png',
     storagePath: 'site-defaults/homepage/hero1.png',
   },
   homeHeroGarden: {
     key: 'homeHeroGarden',
-    localSrc: homepageHeroGarden,
+    localSrc: '/images/homepage/hero2.png',
     storagePath: 'site-defaults/homepage/hero2.png',
   },
   studentLifeArtGuild: {
     key: 'studentLifeArtGuild',
-    localSrc: studentLifeArtGuild,
+    localSrc: '/images/student_life/art_guild.png',
     storagePath: 'site-defaults/student_life/art_guild.png',
   },
   studentLifeBasketball: {
     key: 'studentLifeBasketball',
-    localSrc: studentLifeBasketball,
+    localSrc: '/images/student_life/basketball.png',
     storagePath: 'site-defaults/student_life/basketball.png',
   },
   studentLifeFireSafety: {
     key: 'studentLifeFireSafety',
-    localSrc: studentLifeFireSafety,
+    localSrc: '/images/student_life/fireSafety.png',
     storagePath: 'site-defaults/student_life/fireSafety.png',
   },
   studentLifeGleeClub: {
     key: 'studentLifeGleeClub',
-    localSrc: studentLifeGleeClub,
+    localSrc: '/images/student_life/glee_club.png',
     storagePath: 'site-defaults/student_life/glee_club.png',
   },
   studentLifeHero: {
     key: 'studentLifeHero',
-    localSrc: studentLifeHero,
+    localSrc: '/images/student_life/hero.png',
     storagePath: 'site-defaults/student_life/hero.png',
   },
   studentLifeIntramurals: {
     key: 'studentLifeIntramurals',
-    localSrc: studentLifeIntramurals,
+    localSrc: '/images/student_life/intrmurals.png',
     storagePath: 'site-defaults/student_life/intrmurals.png',
   },
   studentLifeSteward: {
     key: 'studentLifeSteward',
-    localSrc: studentLifeSteward,
+    localSrc: '/images/student_life/steward.jpg',
     storagePath: 'site-defaults/student_life/steward.jpg',
   },
 };

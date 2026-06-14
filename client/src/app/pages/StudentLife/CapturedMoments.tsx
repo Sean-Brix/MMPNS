@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Camera } from 'lucide-react';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { SITE_IMAGE_DEFAULTS } from '../../../utils/siteImageSlots';
 
 interface CapturedMomentsProps {
   intramuralsImg: string;
@@ -15,10 +16,34 @@ export const CapturedMoments: React.FC<CapturedMomentsProps> = ({
   isMobile
 }) => {
   const highlights = [
-    { title: 'Intramurals 2025', date: 'Sept 2025', category: 'Sports', img: intramuralsImg },
-    { title: 'Fire Safety Training', date: 'Aug 2025', category: 'Civic Duty', img: fireSafetyImg },
-    { title: 'Cultural Night', date: 'Oct 2025', category: 'Arts', img: "https://images.unsplash.com/photo-1511632765486-a01980e01a18?auto=format&fit=crop&q=80&w=800" },
-    { title: 'Foundress Day', date: 'Feb 2025', category: 'Spiritual', img: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&q=80&w=800" },
+    {
+      title: 'Intramurals 2025',
+      date: 'Sept 2025',
+      category: 'Sports',
+      img: intramuralsImg,
+      fallbackImg: SITE_IMAGE_DEFAULTS.studentLifeIntramurals,
+    },
+    {
+      title: 'Fire Safety Training',
+      date: 'Aug 2025',
+      category: 'Civic Duty',
+      img: fireSafetyImg,
+      fallbackImg: SITE_IMAGE_DEFAULTS.studentLifeFireSafety,
+    },
+    {
+      title: 'Cultural Night',
+      date: 'Oct 2025',
+      category: 'Arts',
+      img: "https://images.unsplash.com/photo-1511632765486-a01980e01a18?auto=format&fit=crop&q=80&w=800",
+      fallbackImg: undefined,
+    },
+    {
+      title: 'Foundress Day',
+      date: 'Feb 2025',
+      category: 'Spiritual',
+      img: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&q=80&w=800",
+      fallbackImg: undefined,
+    },
   ];
 
   return (
@@ -52,6 +77,7 @@ export const CapturedMoments: React.FC<CapturedMomentsProps> = ({
                 >
                   <ImageWithFallback 
                     src={h.img} 
+                    fallbackSrc={h.fallbackImg}
                     alt={h.title} 
                     className="w-full h-full object-cover" 
                   />

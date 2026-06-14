@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Clock, ImagePlus, MapPin } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
-import type { HomeImageSlotKey } from '../../../utils/homeImageSlots';
+import { HOME_IMAGE_DEFAULTS, type HomeImageSlotKey } from '../../../utils/homeImageSlots';
 
 interface HeroSectionProps {
   setCurrentPage: (page: string) => void;
@@ -61,6 +61,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                     <>
                       <ImageWithFallback
                         src={slide.image || ''}
+                        fallbackSrc={slide.imageSlot ? HOME_IMAGE_DEFAULTS[slide.imageSlot] : undefined}
                         alt={slide.title}
                         className="w-full h-full object-cover brightness-[0.4] md:brightness-[0.5]"
                       />
@@ -191,11 +192,21 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                         >
                           {slide.type === 'bulletin' ? (
                             <div className="h-full overflow-hidden rounded-t-full border-[5px] sm:border-[10px] border-[#EDCD1F] shadow-2xl">
-                              <ImageWithFallback src={slide.eventImage || ''} alt="Event" className="w-full h-full object-cover" />
+                              <ImageWithFallback
+                                src={slide.eventImage || ''}
+                                fallbackSrc={slide.imageSlot ? HOME_IMAGE_DEFAULTS[slide.imageSlot] : undefined}
+                                alt="Event"
+                                className="w-full h-full object-cover"
+                              />
                             </div>
                           ) : (
                             <div className="h-full bg-white p-2.5 pb-8 sm:p-4 sm:pb-16 shadow-2xl transform -rotate-2">
-                              <ImageWithFallback src={slide.eventImage || ''} alt="Event" className="w-full h-full object-cover" />
+                              <ImageWithFallback
+                                src={slide.eventImage || ''}
+                                fallbackSrc={slide.imageSlot ? HOME_IMAGE_DEFAULTS[slide.imageSlot] : undefined}
+                                alt="Event"
+                                className="w-full h-full object-cover"
+                              />
                             </div>
                           )}
                         </div>

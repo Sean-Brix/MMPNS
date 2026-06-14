@@ -2,6 +2,7 @@ import React from 'react';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { Users } from 'lucide-react';
+import { SITE_IMAGE_DEFAULTS } from '../../../utils/siteImageSlots';
 
 interface OrgStructureProps {
   orgChart: string;
@@ -25,6 +26,7 @@ export const OrgStructure: React.FC<OrgStructureProps> = ({ orgChart }) => {
             <div className="relative group cursor-zoom-in">
               <ImageWithFallback 
                 src={orgChart} 
+                fallbackSrc={SITE_IMAGE_DEFAULTS.aboutOrgChart}
                 alt="MMPNS Organizational Chart" 
                 className="w-full h-auto rounded-xl shadow-inner transition-transform duration-700 group-hover:scale-[1.02]" 
               />

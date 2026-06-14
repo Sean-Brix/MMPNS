@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowRight, ImagePlus } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
-import type { HomeImageSlotKey } from '../../../utils/homeImageSlots';
+import { HOME_IMAGE_DEFAULTS, type HomeImageSlotKey } from '../../../utils/homeImageSlots';
 
 interface FoundressLegacyProps {
   setCurrentPage: (page: string) => void;
@@ -45,6 +45,7 @@ export const FoundressLegacy: React.FC<FoundressLegacyProps> = ({
               >
                 <ImageWithFallback 
                   src={foundressImg}
+                  fallbackSrc={HOME_IMAGE_DEFAULTS.foundressLegacy}
                   alt="Madre Maria Pia Notari"
                   className="w-full aspect-[4/5] object-cover"
                 />

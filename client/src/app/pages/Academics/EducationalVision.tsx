@@ -1,6 +1,7 @@
 import React from 'react';
 import { Shield, Library, Globe } from 'lucide-react';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { SITE_IMAGE_DEFAULTS } from '../../../utils/siteImageSlots';
 
 interface EducationalVisionProps {
   campfireImg: string;
@@ -14,6 +15,7 @@ export const EducationalVision: React.FC<EducationalVisionProps> = ({ campfireIm
           <div className="relative">
             <ImageWithFallback 
               src={campfireImg} 
+              fallbackSrc={SITE_IMAGE_DEFAULTS.academicInstitutionalQuality}
               alt="Student Formation Activity" 
               className="rounded-3xl shadow-2xl aspect-[4/3] object-cover"
             />

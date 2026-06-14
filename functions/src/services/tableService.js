@@ -11,7 +11,6 @@ const allowedTables = new Set([
   "alumni",
   "pages",
   "settings",
-  "credentials",
   "school_years",
   "teacher_portal",
   "calendar",
@@ -53,7 +52,7 @@ const getTable = async (table) => {
   const snapshot = await getTableRef(table).get();
 
   if (!snapshot.exists) {
-    throw notFound(`Table "${table}" does not exist in Firestore.`);
+    return null;
   }
 
   return unwrapPayload(snapshot.data());

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router';
 import { Menu, X, ChevronDown, Home, Info, GraduationCap, DoorOpen, Users, Phone, BookOpen, Sparkles, ArrowRight } from 'lucide-react';
 import { Button } from './ui/Button';
+import { ImageWithFallback } from './figma/ImageWithFallback';
 import { useAppNavigate } from '../hooks/useAppNavigate';
-import { readSiteImageSlots } from '../../utils/siteImageSlots';
+import { SITE_IMAGE_DEFAULTS, readSiteImageSlots } from '../../utils/siteImageSlots';
 
 const pathToId: Record<string, string> = {
   '/': 'home',
@@ -207,7 +208,12 @@ export const Header: React.FC = () => {
           >
             <div className="relative">
               <div className="absolute inset-0 bg-[#EDCD1F] rounded-full blur-md opacity-0 group-hover:opacity-20 transition-opacity"></div>
-              <img src={logo} alt="MMPNS Logo" className="h-14 w-14 md:h-16 md:w-16 relative z-10 transition-transform group-hover:scale-105" />
+              <ImageWithFallback
+                src={logo}
+                fallbackSrc={SITE_IMAGE_DEFAULTS.brandLogo}
+                alt="MMPNS Logo"
+                className="h-14 w-14 md:h-16 md:w-16 relative z-10 transition-transform group-hover:scale-105"
+              />
             </div>
             <div>
               <h1 className="text-[#185C20] font-serif font-bold leading-none text-2xl md:text-3xl">MMPNS</h1>

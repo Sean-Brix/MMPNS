@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
 import { initializeDatabase } from '../../../utils/database';
-import { clearAdminSession, clearTeacherSession } from '../../../utils/auth';
+import { logout } from '../../../utils/auth';
 import { FacultyManager } from './FacultyManager';
 import { AlumniManager } from './AlumniManager';
 import { PagesManager } from './PagesManager';
@@ -54,8 +54,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleSignOut = () => {
-    clearTeacherSession();
-    clearAdminSession();
+    void logout();
     goTo('teacher-portal');
   };
 

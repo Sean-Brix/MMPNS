@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Trophy, Music, Palette, Heart } from 'lucide-react';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { SITE_IMAGE_DEFAULTS } from '../../../utils/siteImageSlots';
 
 interface ClubsAndOrgsProps {
   varsitySportsImg: string;
@@ -25,7 +26,8 @@ export const ClubsAndOrgs: React.FC<ClubsAndOrgsProps> = ({
       color: 'from-orange-400 to-red-500', 
       desc: 'Basketball, Volleyball, and Badminton teams representing MMPNS in local meets.',
       accent: 'text-orange-600',
-      image: varsitySportsImg
+      image: varsitySportsImg,
+      fallbackImage: SITE_IMAGE_DEFAULTS.studentLifeBasketball,
     },
     { 
       name: 'Glee Club', 
@@ -33,7 +35,8 @@ export const ClubsAndOrgs: React.FC<ClubsAndOrgsProps> = ({
       color: 'from-blue-400 to-indigo-600', 
       desc: 'Developing vocal talents and performing in school and community celebrations.',
       accent: 'text-blue-600',
-      image: gleeClubImg
+      image: gleeClubImg,
+      fallbackImage: SITE_IMAGE_DEFAULTS.studentLifeGleeClub,
     },
     { 
       name: 'Art Guild', 
@@ -41,7 +44,8 @@ export const ClubsAndOrgs: React.FC<ClubsAndOrgsProps> = ({
       color: 'from-purple-400 to-pink-600', 
       desc: 'A haven for creative minds to explore various mediums and visual storytelling.',
       accent: 'text-purple-600',
-      image: artGuildImg
+      image: artGuildImg,
+      fallbackImage: SITE_IMAGE_DEFAULTS.studentLifeArtGuild,
     },
     { 
       name: 'Stewardship Club', 
@@ -49,7 +53,8 @@ export const ClubsAndOrgs: React.FC<ClubsAndOrgsProps> = ({
       color: 'from-emerald-400 to-teal-600', 
       desc: 'Focusing on community outreach and environmental preservation initiatives.',
       accent: 'text-emerald-600',
-      image: stewardshipClubImg
+      image: stewardshipClubImg,
+      fallbackImage: SITE_IMAGE_DEFAULTS.studentLifeSteward,
     },
   ];
 
@@ -93,6 +98,7 @@ export const ClubsAndOrgs: React.FC<ClubsAndOrgsProps> = ({
               >
                 <ImageWithFallback 
                   src={club.image} 
+                  fallbackSrc={club.fallbackImage}
                   alt={club.name} 
                   className="w-full h-full object-cover" 
                 />

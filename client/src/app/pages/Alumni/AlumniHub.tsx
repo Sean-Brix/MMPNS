@@ -2,6 +2,7 @@ import React from 'react';
 import { ImagePlus, QrCode } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { ALUMNI_IMAGE_DEFAULTS } from '../../../utils/alumniImageSlots';
 
 interface AlumniHubProps {
   registrationQr: string;
@@ -61,7 +62,12 @@ export const AlumniHub: React.FC<AlumniHubProps> = ({
                     <div className="flex flex-col items-center text-center space-y-6 md:space-y-8">
                       <div className="p-4 md:p-6 bg-white rounded-2xl md:rounded-[2rem] shadow-inner">
                         <div className="w-32 md:w-40 h-32 md:h-40 flex items-center justify-center overflow-hidden">
-                          <ImageWithFallback src={registrationQr} alt="Register QR" className="w-full h-full object-contain" />
+                          <ImageWithFallback
+                            src={registrationQr}
+                            fallbackSrc={ALUMNI_IMAGE_DEFAULTS.registrationQr}
+                            alt="Register QR"
+                            className="w-full h-full object-contain"
+                          />
                         </div>
                         <div className="mt-3 md:mt-4 flex items-center justify-center gap-2 text-[#185C20] font-bold text-[9px] md:text-[10px] tracking-widest">
                           <QrCode size={12} className="md:w-3.5 md:h-3.5" />

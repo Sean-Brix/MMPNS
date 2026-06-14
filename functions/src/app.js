@@ -2,6 +2,7 @@ const cors = require("cors");
 const express = require("express");
 const {HttpError} = require("./httpError");
 const {authRoutes} = require("./routes/authRoutes");
+const {accountRoutes} = require("./routes/accountRoutes");
 const {storageRoutes} = require("./routes/storageRoutes");
 const {tableRoutes} = require("./routes/tableRoutes");
 
@@ -16,11 +17,12 @@ router.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "mmpns-api",
-    backingServices: ["firestore", "cloud-storage"],
+    backingServices: ["firestore", "cloud-storage", "firebase-auth"],
   });
 });
 
 router.use("/auth", authRoutes);
+router.use("/accounts", accountRoutes);
 router.use("/tables", tableRoutes);
 router.use("/storage", storageRoutes);
 
@@ -47,6 +49,4 @@ app.use((error, _req, res, _next) => {
   });
 });
 
-module.exports = {
-  app,
-};
+module.exports = {app};

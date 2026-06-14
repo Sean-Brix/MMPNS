@@ -2,7 +2,6 @@ import {
   deleteApiTable,
   getApiSeedSnapshot,
   getApiTable,
-  hasDeveloperAdminSession,
   setApiTable,
 } from './apiClient';
 
@@ -11,7 +10,6 @@ export type DatabaseTable =
   | 'alumni'
   | 'pages'
   | 'settings'
-  | 'credentials'
   | 'school_years'
   | 'teacher_portal'
   | 'calendar'
@@ -28,7 +26,6 @@ const DATABASE_TABLES: DatabaseTable[] = [
   'alumni',
   'pages',
   'settings',
-  'credentials',
   'school_years',
   'teacher_portal',
   'calendar',
@@ -51,14 +48,6 @@ interface DatabaseUpdateEventDetail {
   source: DatabaseUpdateSource;
 }
 
-const EMPTY_CREDENTIALS = {
-  teachers: [],
-  students: [],
-  admins: [],
-};
-
-const PROTECTED_TABLES = new Set<DatabaseTable>(['credentials']);
-
 let hasStartedCloudRefresh = false;
 let cloudRefreshIntervalId: number | null = null;
 
@@ -80,24 +69,6 @@ const emitDatabaseUpdated = (table: DatabaseTable, source: DatabaseUpdateSource)
   window.dispatchEvent(new CustomEvent<DatabaseUpdateEventDetail>(DATABASE_UPDATED_EVENT, { detail }));
 };
 
-const normalizeCredentials = (value: unknown) => {
-  const source = value && typeof value === 'object' ? value as any : EMPTY_CREDENTIALS;
-  return {
-    ...source,
-    teachers: Array.isArray(source.teachers) ? [...source.teachers] : [],
-    students: Array.isArray(source.students) ? [...source.students] : [],
-    admins: Array.isArray(source.admins) ? [...source.admins] : [],
-  };
-};
-
-const normalizeTableData = (table: DatabaseTable, value: unknown) => {
-  if (table !== 'credentials') {
-    return value;
-  }
-
-  return normalizeCredentials(value);
-};
-
 const persistTableLocally = (
   table: DatabaseTable,
   value: unknown,
@@ -107,8 +78,7 @@ const persistTableLocally = (
     return;
   }
 
-  const normalized = normalizeTableData(table, value);
-  localStorage.setItem(getStorageKey(table), JSON.stringify(normalized));
+  localStorage.setItem(getStorageKey(table), JSON.stringify(value));
   emitDatabaseUpdated(table, source);
 };
 
@@ -121,16 +91,7 @@ const removeTableLocally = (table: DatabaseTable, source: DatabaseUpdateSource) 
   emitDatabaseUpdated(table, source);
 };
 
-const canAccessProtectedTable = (table: DatabaseTable) => (
-  !PROTECTED_TABLES.has(table) || hasDeveloperAdminSession()
-);
-
 const refreshTableFromCloud = async (table: DatabaseTable) => {
-  if (!canAccessProtectedTable(table)) {
-    removeTableLocally(table, 'cloud');
-    return null;
-  }
-
   const cloudValue = await getApiTable(table);
 
   if (cloudValue !== null) {
@@ -140,7 +101,7 @@ const refreshTableFromCloud = async (table: DatabaseTable) => {
 
   const localValue = readDatabase(table);
   if (localValue !== null) {
-    await setApiTable(table, normalizeTableData(table, localValue));
+    await setApiTable(table, localValue);
   }
 
   return localValue;
@@ -187,33 +148,24 @@ export const readDatabase = <T = any>(table: DatabaseTable): T | null => {
     return null;
   }
 
-  if (!canAccessProtectedTable(table)) {
-    return null;
-  }
-
   const data = localStorage.getItem(getStorageKey(table));
   if (!data) {
     return null;
   }
 
   try {
-    return normalizeTableData(table, JSON.parse(data)) as T;
+    return JSON.parse(data) as T;
   } catch {
     return null;
   }
 };
 
 export const readDatabaseOnline = async <T = any>(table: DatabaseTable): Promise<T | null> => {
-  if (!canAccessProtectedTable(table)) {
-    removeTableLocally(table, 'cloud');
-    return null;
-  }
-
   try {
     const cloudValue = await getApiTable<T>(table);
     if (cloudValue !== null) {
       persistTableLocally(table, cloudValue, 'cloud');
-      return normalizeTableData(table, cloudValue) as T;
+      return cloudValue;
     }
   } catch (error) {
     console.error(`Failed to read ${table} from API:`, error);
@@ -233,22 +185,14 @@ export const readSeedSnapshotOnline = async <T = any>(key: string): Promise<T | 
 
 export const writeDatabase = (table: DatabaseTable, data: any): boolean => {
   try {
-    if (!canAccessProtectedTable(table)) {
-      return false;
-    }
-
     const dataWithTimestamp =
       data && typeof data === 'object' && !Array.isArray(data)
-        ? {
-            ...data,
-            lastUpdated: new Date().toISOString(),
-          }
+        ? { ...data, lastUpdated: new Date().toISOString() }
         : data;
 
-    const normalized = normalizeTableData(table, dataWithTimestamp);
-    persistTableLocally(table, normalized, 'local');
+    persistTableLocally(table, dataWithTimestamp, 'local');
 
-    void setApiTable(table, normalized).catch((error) => {
+    void setApiTable(table, dataWithTimestamp).catch((error) => {
       console.error(`Failed to write ${table} to API:`, error);
     });
 
@@ -261,21 +205,13 @@ export const writeDatabase = (table: DatabaseTable, data: any): boolean => {
 
 export const writeDatabaseOnline = async (table: DatabaseTable, data: any): Promise<boolean> => {
   try {
-    if (!canAccessProtectedTable(table)) {
-      return false;
-    }
-
     const dataWithTimestamp =
       data && typeof data === 'object' && !Array.isArray(data)
-        ? {
-            ...data,
-            lastUpdated: new Date().toISOString(),
-          }
+        ? { ...data, lastUpdated: new Date().toISOString() }
         : data;
 
-    const normalized = normalizeTableData(table, dataWithTimestamp);
-    persistTableLocally(table, normalized, 'local');
-    await setApiTable(table, normalized);
+    persistTableLocally(table, dataWithTimestamp, 'local');
+    await setApiTable(table, dataWithTimestamp);
     return true;
   } catch (error) {
     console.error(`Failed to write ${table} online:`, error);

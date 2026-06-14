@@ -8,7 +8,6 @@ import { AcademicHighlights } from './AcademicHighlights';
 import { AccreditationSection } from './AccreditationSection';
 import { InstitutionalCTA } from './InstitutionalCTA';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
-import { getTeacherSession } from '../../../utils/auth';
 import {
   readDatabase,
   readDatabaseOnline,
@@ -384,9 +383,8 @@ export const Home: React.FC = () => {
   }, [hasLoadedImageSlots, imageSlots]);
 
   React.useEffect(() => {
-    const isPrincipal = getTeacherSession()?.position === 'Principal';
     const toggleEnabled = localStorage.getItem(HOME_IMAGE_EDIT_MODE_KEY) === 'true';
-    setIsImageEditMode(isPrincipal && toggleEnabled);
+    setIsImageEditMode(toggleEnabled);
   }, []);
 
   const openEditModal = (slot: HomeImageSlotKey) => {

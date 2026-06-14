@@ -1,6 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Cross } from 'lucide-react';
+import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { SITE_IMAGE_DEFAULTS } from '../../../utils/siteImageSlots';
 
 interface AboutHeroProps {
   schoolSeal: string;
@@ -25,8 +27,9 @@ export const AboutHero: React.FC<AboutHeroProps> = ({ schoolSeal }) => {
           <div className="flex justify-center mb-8">
             <div className="relative">
               <div className="absolute inset-0 bg-[#EDCD1F] blur-2xl opacity-20 animate-pulse"></div>
-              <img 
+              <ImageWithFallback
                 src={schoolSeal} 
+                fallbackSrc={SITE_IMAGE_DEFAULTS.brandLogo}
                 alt="MMPNS School Seal" 
                 className="w-24 h-24 md:w-32 md:h-32 relative z-10 drop-shadow-[0_0_15px_rgba(237,205,31,0.3)] brightness-110" 
               />

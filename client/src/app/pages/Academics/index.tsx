@@ -195,6 +195,7 @@ export const Academics: React.FC = () => {
       subtitle: 'NURTURING THE SEEDS OF FAITH',
       description: 'Our early childhood program is a sanctuary of discovery where play meets prayer. We focus on the total development of the child, ensuring that their first steps in education are rooted in joy, curiosity, and Catholic values.',
       img: siteImageSlots.sharedKindergarten,
+      fallbackImg: SITE_IMAGE_DEFAULTS.sharedKindergarten,
       stats: [
         { label: 'Ratio', value: '1:15' },
         { label: 'Focus', value: 'Holistic' }
@@ -213,6 +214,7 @@ export const Academics: React.FC = () => {
       subtitle: 'BUILDING THE INTELLECTUAL PILLARS',
       description: 'The primary years at MMPNS are dedicated to academic rigor and moral discipline. We provide a solid foundation in the core disciplines while integrating the Sisters Adorers charism into the daily classroom experience.',
       img: siteImageSlots.sharedElementary,
+      fallbackImg: SITE_IMAGE_DEFAULTS.sharedElementary,
       stats: [
         { label: 'Subjects', value: '8 Core' },
         { label: 'Track', value: 'Mastery' }
@@ -231,6 +233,7 @@ export const Academics: React.FC = () => {
       subtitle: 'SHAPING SERVANT LEADERS',
       description: 'As students transition into adolescence, our Junior High program emphasizes critical thinking, leadership, and personal responsibility. We prepare our graduates not just for higher education, but for a life of service.',
       img: siteImageSlots.sharedJuniorHigh,
+      fallbackImg: SITE_IMAGE_DEFAULTS.sharedJuniorHigh,
       stats: [
         { label: 'Accredited', value: 'ESC/PEAC' },
         { label: 'Focus', value: 'Research' }

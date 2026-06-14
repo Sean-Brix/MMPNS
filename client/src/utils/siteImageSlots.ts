@@ -2,6 +2,7 @@ import {
   SITE_DEFAULT_IMAGES,
   type SiteDefaultImageKey,
 } from './siteDefaultImages';
+import { sanitizeStoredImageSrc } from './imageSource';
 
 export const SITE_IMAGE_STORAGE_KEY = 'mmpns_site_image_slots_v1';
 
@@ -24,10 +25,16 @@ export const readSiteImageSlots = (): SiteImageSlotMap => {
     }
 
     const parsed = JSON.parse(raw) as Partial<SiteImageSlotMap>;
-    return {
+    const mergedSlots = {
       ...SITE_IMAGE_DEFAULTS,
       ...parsed,
     };
+
+    (Object.keys(SITE_IMAGE_DEFAULTS) as SiteDefaultImageKey[]).forEach((slot) => {
+      mergedSlots[slot] = sanitizeStoredImageSrc(mergedSlots[slot], SITE_IMAGE_DEFAULTS[slot]);
+    });
+
+    return mergedSlots;
   } catch {
     return { ...SITE_IMAGE_DEFAULTS };
   }

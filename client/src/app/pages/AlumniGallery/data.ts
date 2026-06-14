@@ -1,6 +1,7 @@
-import jamesCaraanImg from '../../../assets/no_image.png';
-import jamesCaraanVintageImg from '../../../assets/no_image.png';
 import { AlumniProfile } from './types';
+
+const jamesCaraanImg = '/images/no_image.png';
+const jamesCaraanVintageImg = '/images/no_image.png';
 
 export const alumniProfiles: AlumniProfile[] = [
   {

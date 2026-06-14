@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Users, LogOut, Lock, GraduationCap, Eye, EyeOff,
@@ -7,16 +7,10 @@ import {
   Calculator, FileSpreadsheet, Settings, ClipboardList, ArrowUpDown,
   Search, X, Layers, Award, LayoutGrid,
   Pencil, PencilOff, Check, SquareCheck, Square, MinusSquare,
-  Shield, School, Calendar, UserCheck, Star, Target, Trophy, Clock, RefreshCw, ImagePlus, Tag, MapPin
+  Star, Target, Trophy, Clock, School, Calendar, Tag, MapPin
 } from 'lucide-react';
-import {
-  authenticateTeacherOnline,
-  saveTeacherSession,
-  getTeacherSession,
-  clearTeacherSession,
-} from '../../../utils/auth';
+import { loginWithCredentials, getStoredSession, logout } from '../../../utils/auth';
 import { initializeDatabase, readDatabaseOnline, writeDatabaseOnline } from '../../../utils/database';
-import { HOME_IMAGE_EDIT_MODE_KEY } from '../../../utils/homeImageSlots';
 import {
   EVENT_TYPES,
   getCalendarAssignmentLabel,
@@ -35,16 +29,9 @@ import {
   loadTeacherEvaluations,
   resolveEvaluationTeacherUsername,
 } from '../../../utils/teacherEvaluations';
-import { PrincipalSubjects } from '../../components/principal/PrincipalSubjects';
-import { PrincipalEvaluation } from '../../components/principal/PrincipalEvaluation';
-import { PrincipalCalendar } from '../../components/principal/PrincipalCalendar';
-import { PrincipalRegistration } from '../../components/principal/PrincipalRegistration';
-import { PrincipalTeachers } from '../../components/principal/PrincipalTeachers';
-import { PrincipalYearSetup } from '../../components/principal/PrincipalYearSetup';
-import { Switch } from '../../components/ui/switch';
-import onboardingHeroMain from '../../../../assets/homepage/hero1.png';
-import onboardingHeroElementary from '../../../../assets/homepage/elementary.png';
-import onboardingHeroStudentLife from '../../../../assets/student_life/hero.png';
+const onboardingHeroMain = '/images/homepage/hero1.png';
+const onboardingHeroElementary = '/images/homepage/elementary.png';
+const onboardingHeroStudentLife = '/images/student_life/hero.png';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -81,9 +68,9 @@ const isStandaloneDisplayMode = () => {
   return false;
 };
 
-/* ═══════════���══════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•ï¿½ï¿½ï¿½â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    DepEd Transmutation Table
-   ══════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const TRANSMUTATION_TABLE: [number, number, number][] = [
   [100, 100, 100], [98.40, 99.99, 99], [96.80, 98.39, 98], [95.20, 96.79, 97],
   [93.60, 95.19, 96], [92.00, 93.59, 95], [90.40, 91.99, 94], [88.80, 90.39, 93],
@@ -106,9 +93,9 @@ function transmute(initialGrade: number): number {
   return 60;
 }
 
-/* ══════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Types
-   ══════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 interface Subject {
   id: string; name: string; type: 'major' | 'minor';
   weights: { written: number; performance: number; quarterly: number };
@@ -124,9 +111,9 @@ interface TeacherPortalStore {
   studentsByYear?: Record<string, Student[]>;
 }
 
-/* ══════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Static Data
-   ══════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const SUBJECTS: Subject[] = [
   { id: 'math', name: 'Mathematics', type: 'major', weights: { written: 20, performance: 40, quarterly: 20 } },
   { id: 'science', name: 'Science', type: 'major', weights: { written: 20, performance: 40, quarterly: 20 } },
@@ -157,29 +144,6 @@ const normalizeTeacherPortalStore = (store: TeacherPortalStore | null | undefine
   studentsByYear: store?.studentsByYear ?? {},
 });
 
-const TEACHER_ASSIGNMENTS: Record<string, TeacherAssignment[]> = {
-  'teacher.santos': [
-    { subjectId: 'ict', yearLevel: 'Grade 7' }, { subjectId: 'ict', yearLevel: 'Grade 8' },
-    { subjectId: 'tle', yearLevel: 'Grade 9' },
-  ],
-  'teacher.reyes': [
-    { subjectId: 'math', yearLevel: 'Grade 7' }, { subjectId: 'math', yearLevel: 'Grade 8' },
-    { subjectId: 'math', yearLevel: 'Grade 10' },
-  ],
-  'teacher.garcia': [
-    { subjectId: 'english', yearLevel: 'Grade 6' }, { subjectId: 'english', yearLevel: 'Grade 9' },
-    { subjectId: 'filipino', yearLevel: 'Grade 7' },
-  ],
-  'teacher.cruz': [
-    { subjectId: 'science', yearLevel: 'Grade 8' }, { subjectId: 'science', yearLevel: 'Grade 9' },
-    { subjectId: 'science', yearLevel: 'Grade 10' },
-  ],
-  'teacher.mendoza': [
-    { subjectId: 'mapeh', yearLevel: 'Grade 6' }, { subjectId: 'mapeh', yearLevel: 'Grade 7' },
-    { subjectId: 'esp', yearLevel: 'Grade 8' }, { subjectId: 'ap', yearLevel: 'Grade 9' },
-  ],
-};
-
 const MOBILE_ONBOARDING_SLIDES = [
   {
     image: onboardingHeroMain,
@@ -198,66 +162,6 @@ const MOBILE_ONBOARDING_SLIDES = [
   },
 ] as const;
 
-/* ══════════════════════════════════════════════
-   Data Generators
-   ══════════════════════════════════════════════ */
-function generateStudents(yearLevel: string): Student[] {
-  const names: Record<string, { name: string; gender: 'M' | 'F' }[]> = {
-    'Grade 6': [
-      { name: 'Alcaraz, Maria C.', gender: 'F' }, { name: 'Bautista, John R.', gender: 'M' },
-      { name: 'Cruz, Angelica D.', gender: 'F' }, { name: 'De Leon, Marco P.', gender: 'M' },
-      { name: 'Estrada, Sofia L.', gender: 'F' }, { name: 'Fernandez, Luis A.', gender: 'M' },
-      { name: 'Gonzales, Patricia M.', gender: 'F' }, { name: 'Hernandez, Carlos J.', gender: 'M' },
-    ],
-    'Grade 7': [
-      { name: 'Aquino, Bianca R.', gender: 'F' }, { name: 'Bernardo, Miguel S.', gender: 'M' },
-      { name: 'Castillo, Diana V.', gender: 'F' }, { name: 'Dela Cruz, Juan P.', gender: 'M' },
-      { name: 'Enriquez, Samantha K.', gender: 'F' }, { name: 'Flores, Andrei J.', gender: 'M' },
-      { name: 'Garcia, Kyla M.', gender: 'F' }, { name: 'Ignacio, Nathan A.', gender: 'M' },
-      { name: 'Jimenez, Trisha L.', gender: 'F' }, { name: 'Lopez, Rafael D.', gender: 'M' },
-    ],
-    'Grade 8': [
-      { name: 'Aguilar, Camille B.', gender: 'F' }, { name: 'Bello, Ethan R.', gender: 'M' },
-      { name: 'Cordero, Janine S.', gender: 'F' }, { name: 'Domingo, Patrick A.', gender: 'M' },
-      { name: 'Espinosa, Clara T.', gender: 'F' }, { name: 'Franco, Javier M.', gender: 'M' },
-      { name: 'Gutierrez, Alyssa P.', gender: 'F' }, { name: 'Herrera, Dominic L.', gender: 'M' },
-      { name: 'Ilagan, Mia G.', gender: 'F' },
-    ],
-    'Grade 9': [
-      { name: 'Alvarez, Sophia N.', gender: 'F' }, { name: 'Buenaventura, James C.', gender: 'M' },
-      { name: 'Chua, Isabelle R.', gender: 'F' }, { name: 'Dizon, Christian L.', gender: 'M' },
-      { name: 'Evangelista, Nicole D.', gender: 'F' }, { name: 'Feliciano, Mark A.', gender: 'M' },
-      { name: 'Galvez, Julia M.', gender: 'F' }, { name: 'Hidalgo, Gabriel S.', gender: 'M' },
-      { name: 'Ison, Andrea P.', gender: 'F' }, { name: 'Javier, Roberto K.', gender: 'M' },
-      { name: 'Kapunan, Elise J.', gender: 'F' },
-    ],
-    'Grade 10': [
-      { name: 'Abella, Christine M.', gender: 'F' }, { name: 'Balagtas, Kenneth R.', gender: 'M' },
-      { name: 'Campos, Alexa S.', gender: 'F' }, { name: 'Dalisay, Francis T.', gender: 'M' },
-      { name: 'Escueta, Hannah L.', gender: 'F' }, { name: 'Fabian, Lorenzo A.', gender: 'M' },
-      { name: 'Gomez, Beatrice V.', gender: 'F' }, { name: 'Henson, David C.', gender: 'M' },
-      { name: 'Ibarra, Therese N.', gender: 'F' }, { name: 'Jacinto, Vincent P.', gender: 'M' },
-    ],
-  };
-  return (names[yearLevel] || []).map((s, i) => ({
-    id: `${yearLevel.replace(/\s/g, '')}-${String(i + 1).padStart(3, '0')}`,
-    name: s.name, gender: s.gender, yearLevel,
-  }));
-}
-
-function generateMockGrades(students: Student[], activities: Activity[]): Grade[] {
-  const grades: Grade[] = [];
-  const seededRandom = (seed: number) => { const x = Math.sin(seed) * 10000; return x - Math.floor(x); };
-  students.forEach((student, si) => {
-    activities.forEach((activity, ai) => {
-      const seed = si * 100 + ai + student.name.length;
-      const ratio = 0.55 + seededRandom(seed) * 0.45;
-      grades.push({ studentId: student.id, activityId: activity.id, score: Math.round(activity.maxScore * ratio) });
-    });
-  });
-  return grades;
-}
-
 function generateDefaultActivities(subjectId: string, quarterId: number): Activity[] {
   return [
     { id: `${subjectId}-q${quarterId}-ww1`, subjectId, quarterId, type: 'written', title: 'Written Work 1', maxScore: 30 },
@@ -269,9 +173,9 @@ function generateDefaultActivities(subjectId: string, quarterId: number): Activi
   ];
 }
 
-/* ══════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Computation Engine
-   ══════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function computeStudentGrade(
   studentId: string, activities: Activity[], grades: Grade[],
   weights: { written: number; performance: number; quarterly: number }
@@ -296,9 +200,9 @@ function computeStudentGrade(
   return { initialGrade, transmutedGrade: transmute(initialGrade), breakdown };
 }
 
-/* ═══════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    HELPER: grade color
-   ═══════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const gradeColor = (g: number) =>
   g >= 90 ? 'text-emerald-600' : g >= 85 ? 'text-sky-600' : g >= 80 ? 'text-blue-600' : g >= 75 ? 'text-amber-600' : 'text-red-600';
 const gradeBg = (g: number) =>
@@ -306,11 +210,11 @@ const gradeBg = (g: number) =>
 const gradePill = (g: number) =>
   g >= 90 ? 'bg-emerald-100 text-emerald-700' : g >= 85 ? 'bg-sky-100 text-sky-700' : g >= 80 ? 'bg-blue-100 text-blue-700' : g >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
 
-/* ═══════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN COMPONENT
-   ═══════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 export const TeacherPortal: React.FC = () => {
-  // ── Auth state ──
+  // â”€â”€ Auth state â”€â”€
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -325,15 +229,15 @@ export const TeacherPortal: React.FC = () => {
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installHint, setInstallHint] = useState('');
   const [teacherInfo, setTeacherInfo] = useState<{ username?: string; displayName: string; initials: string; department: string; position: string; employeeId?: string } | null>(null);
-  const [homeImageEditModeEnabled, setHomeImageEditModeEnabled] = useState(false);
+
   const onboardingTouchStartX = useRef<number | null>(null);
 
-  // ── Navigation ──
+  // â”€â”€ Navigation â”€â”€
   const [activeSection, setActiveSection] = useState<string>('dashboard');
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  // ── Grading state ──
+  // â”€â”€ Grading state â”€â”€
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
   const [selectedYearLevel, setSelectedYearLevel] = useState<string>('');
   const [selectedQuarter, setSelectedQuarter] = useState<number>(3);
@@ -364,31 +268,22 @@ export const TeacherPortal: React.FC = () => {
   const teacherPortalStoreRef = useRef<TeacherPortalStore>(EMPTY_TEACHER_PORTAL_STORE);
   const [teacherCalendarEvents, setTeacherCalendarEvents] = useState<CalendarEvent[]>([]);
 
-  // ── Init ──
+  // â”€â”€ Init â”€â”€
   useEffect(() => {
     let isCancelled = false;
 
     initializeDatabase();
-    // Force re-init credentials to pick up new accounts (e.g. principal)
-    localStorage.removeItem('mmpns_db_credentials');
-    initializeDatabase();
-    setHomeImageEditModeEnabled(localStorage.getItem(HOME_IMAGE_EDIT_MODE_KEY) === 'true');
 
-    const session = getTeacherSession();
-    if (session) {
-      if (session.position === 'Admin') {
-        window.location.replace('/admin');
-        return;
-      }
-
+    const session = getStoredSession();
+    if (session?.role === 'teacher') {
       setIsAuthenticated(true);
       setTeacherInfo({
         username: session.username,
         displayName: session.displayName,
-        initials: session.initials,
-        department: session.department,
-        position: session.position || '',
-        employeeId: session.employeeId,
+        initials: session.initials || '',
+        department: session.department || '',
+        position: '',
+        employeeId: undefined,
       });
       setIsPortalLoading(true);
       window.setTimeout(() => {
@@ -550,17 +445,9 @@ export const TeacherPortal: React.FC = () => {
     setInstallHint('Install prompt is not ready yet. Refresh once, then tap Download App again. If still unavailable, use browser menu: Install App / Add to Home Screen.');
   };
 
-  const teacherUsername = useMemo(() => {
-    const session = getTeacherSession();
-    return session?.employeeId ? Object.keys(TEACHER_ASSIGNMENTS).find(k => {
-      const parts = k.split('.'); return session.displayName?.toLowerCase().includes(parts[1]);
-    }) : Object.keys(TEACHER_ASSIGNMENTS)[0];
-  }, [isAuthenticated]);
-
-  const assignments = useMemo(() => {
-    if (!teacherUsername) return [];
-    return TEACHER_ASSIGNMENTS[teacherUsername] || TEACHER_ASSIGNMENTS[Object.keys(TEACHER_ASSIGNMENTS)[0]] || [];
-  }, [teacherUsername]);
+  // Teacher assignments are loaded from the database via the principal's subject setup.
+  // Empty by default until the principal assigns subjects.
+  const assignments = useMemo<TeacherAssignment[]>(() => [], []);
 
   useEffect(() => {
     if (!selectedSubjectId || !selectedYearLevel) return;
@@ -588,13 +475,13 @@ export const TeacherPortal: React.FC = () => {
 
       const nextStudents = hasStudents
         ? (studentsByYear[selectedYearLevel] as Student[])
-        : generateStudents(selectedYearLevel);
+        : [];
       const nextActivities = hasActivities
         ? (classData?.activities as Activity[])
         : generateDefaultActivities(selectedSubjectId, selectedQuarter);
       const nextGrades = hasGrades
         ? (classData?.grades as Grade[])
-        : generateMockGrades(nextStudents, nextActivities);
+        : [];
 
       if (isCancelled) {
         return;
@@ -674,7 +561,7 @@ export const TeacherPortal: React.FC = () => {
   const currentSubject = SUBJECTS.find(s => s.id === selectedSubjectId);
   const currentQuarter = QUARTERS.find(q => q.id === selectedQuarter);
 
-  // ── Auth handlers ──
+  // â”€â”€ Auth handlers â”€â”€
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -687,25 +574,17 @@ export const TeacherPortal: React.FC = () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 650));
 
-    const result = await authenticateTeacherOnline(username, password);
-    if (result.success && result.teacher) {
-      saveTeacherSession(result.teacher, result.token);
-
-      if (result.teacher.position === 'Admin') {
-        setIsSigningIn(false);
-        window.location.assign('/admin');
-        return;
-      }
-
+    const result = await loginWithCredentials(username, password);
+    if (result.success && result.user && result.role === 'teacher') {
       setIsPortalLoading(true);
       setIsAuthenticated(true);
       setTeacherInfo({
-        username: result.teacher.username,
-        displayName: result.teacher.displayName,
-        initials: result.teacher.initials,
-        department: result.teacher.department,
-        position: result.teacher.position,
-        employeeId: result.teacher.employeeId,
+        username: result.user.username,
+        displayName: result.user.displayName,
+        initials: result.user.initials,
+        department: result.user.department || '',
+        position: '',
+        employeeId: undefined,
       });
       window.setTimeout(() => {
         setIsPortalLoading(false);
@@ -717,28 +596,11 @@ export const TeacherPortal: React.FC = () => {
     }
   };
   const handleLogout = () => {
-    clearTeacherSession(); setIsAuthenticated(false); setTeacherInfo(null);
+    void logout(); setIsAuthenticated(false); setTeacherInfo(null);
     setUsername(''); setPassword(''); setActiveSection('dashboard');
   };
 
-  const handlePrincipalImageEditToggle = (checked: boolean) => {
-    setHomeImageEditModeEnabled(checked);
-    localStorage.setItem(HOME_IMAGE_EDIT_MODE_KEY, String(checked));
-    if (checked) {
-      window.location.assign('/');
-    }
-  };
-
-  const openPrincipalImageEditor = () => {
-    setHomeImageEditModeEnabled(true);
-    localStorage.setItem(HOME_IMAGE_EDIT_MODE_KEY, 'true');
-    window.location.assign('/');
-  };
-
-  const isPrincipal = teacherInfo?.position === 'Principal';
-  const isAdminRole = teacherInfo?.position === 'Admin';
-
-  // ── Data handlers ──
+  // â”€â”€ Data handlers â”€â”€
   const updateGrade = (studentId: string, activityId: string, score: number | null) => {
     setGrades(prev => {
       const idx = prev.findIndex(g => g.studentId === studentId && g.activityId === activityId);
@@ -767,7 +629,7 @@ export const TeacherPortal: React.FC = () => {
     setNewStudentName(''); setShowAddStudent(false);
   };
 
-  // ── Multi-select helpers ──
+  // â”€â”€ Multi-select helpers â”€â”€
   const toggleStudentSelect = (id: string) => {
     setSelectedStudentIds(prev => {
       const next = new Set(prev);
@@ -796,7 +658,7 @@ export const TeacherPortal: React.FC = () => {
     setBulkScore(''); setSelectedStudentIds(new Set());
   };
 
-  // ── Edit activity helpers ──
+  // â”€â”€ Edit activity helpers â”€â”€
   const startEditActivity = (act: Activity) => {
     setEditingActivityId(act.id);
     setEditActivityTitle(act.title);
@@ -811,7 +673,7 @@ export const TeacherPortal: React.FC = () => {
   };
   const cancelEditActivity = () => { setEditingActivityId(null); };
 
-  // ── Computed grades ──
+  // â”€â”€ Computed grades â”€â”€
   const computedGrades = useMemo(() => {
     if (!currentSubject) return [];
     return students.map(student => ({ student, ...computeStudentGrade(student.id, activities, grades, currentSubject.weights) }));
@@ -892,21 +754,8 @@ export const TeacherPortal: React.FC = () => {
     a.click(); URL.revokeObjectURL(url);
   };
 
-  // ── Nav items ──
-  const sidebarItems = isPrincipal ? [
-    { id: 'dashboard', label: 'Overview', icon: LayoutGrid },
-    { id: 'subjects', label: 'Subjects', icon: BookOpen },
-    { id: 'teachers', label: 'Teachers', icon: UserCheck },
-    { id: 'registration', label: 'Students', icon: Users },
-    { id: 'evaluation', label: 'Evaluation', icon: ClipboardList },
-    { id: 'calendar', label: 'Calendar', icon: Calendar },
-    { id: 'academics', label: 'Academics', icon: Target },
-    { id: 'yearly-rollover', label: 'SY Rollover', icon: RefreshCw },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ] : isAdminRole ? [
-    { id: 'dashboard', label: 'Admin Dashboard', icon: Shield },
-    { id: 'settings', label: 'Portal Settings', icon: Settings },
-  ] : [
+  // â”€â”€ Nav items â”€â”€
+  const sidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
     { id: 'grading', label: 'Grade Book', icon: Calculator },
     { id: 'students', label: 'Students', icon: Users },
@@ -915,29 +764,13 @@ export const TeacherPortal: React.FC = () => {
     { id: 'evaluation', label: 'Evaluation', icon: ClipboardList },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
-  const bottomNavItems = isPrincipal ? [
-    { id: 'dashboard', label: 'Home', icon: LayoutGrid },
-    { id: 'subjects', label: 'Subjects', icon: BookOpen },
-    { id: 'teachers', label: 'Teachers', icon: UserCheck },
-    { id: 'registration', label: 'Students', icon: Users },
-  ] : isAdminRole ? [
-    { id: 'dashboard', label: 'Admin', icon: Shield },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ] : [
+  const bottomNavItems = [
     { id: 'dashboard', label: 'Home', icon: LayoutGrid },
     { id: 'grading', label: 'Grades', icon: Calculator },
     { id: 'students', label: 'Students', icon: Users },
     { id: 'analytics', label: 'Stats', icon: BarChart3 },
   ];
-  const moreMenuItems = isPrincipal ? [
-    { id: 'calendar', label: 'Calendar', icon: Calendar },
-    { id: 'evaluation', label: 'Teacher Evaluation', icon: ClipboardList },
-    { id: 'academics', label: 'Academics & Analytics', icon: Target },
-    { id: 'yearly-rollover', label: 'SY Rollover', icon: RefreshCw },
-    { id: 'settings', label: 'School Settings', icon: Settings },
-  ] : isAdminRole ? [
-    { id: 'settings', label: 'Portal Settings', icon: Settings },
-  ] : [
+  const moreMenuItems = [
     { id: 'calendar', label: 'My Calendar', icon: Calendar },
     { id: 'evaluation', label: 'My Evaluation', icon: ClipboardList },
     { id: 'settings', label: 'Quarter Settings', icon: Settings },
@@ -989,9 +822,9 @@ export const TeacherPortal: React.FC = () => {
     );
   }
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      LOGIN SCREEN
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   if (!isAuthenticated) {
     const activeOnboardingSlide = MOBILE_ONBOARDING_SLIDES[onboardingSlideIndex];
 
@@ -1184,12 +1017,12 @@ export const TeacherPortal: React.FC = () => {
     );
   }
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      SECTION: DASHBOARD
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   const renderDashboard = () => (
     <div className="space-y-4">
-      {/* ─── Unified top card: Hero + Stats ─── */}
+      {/* â”€â”€â”€ Unified top card: Hero + Stats â”€â”€â”€ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {/* Hero banner */}
         <div className="relative bg-[#185C20] p-5 lg:p-7 text-white overflow-hidden">
@@ -1199,7 +1032,7 @@ export const TeacherPortal: React.FC = () => {
           </div>
           <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-8">
             <div className="flex-1">
-              <p className="text-[#EDCD1F] text-[10px] lg:text-xs font-bold uppercase tracking-[0.2em] mb-0.5">SY 2025–2026 &bull; {currentQuarter?.label}</p>
+              <p className="text-[#EDCD1F] text-[10px] lg:text-xs font-bold uppercase tracking-[0.2em] mb-0.5">SY 2025â€“2026 &bull; {currentQuarter?.label}</p>
               <h2 className="text-lg lg:text-2xl font-bold">Hello, {teacherInfo?.displayName?.split(',')[0] || 'Teacher'}!</h2>
               <p className="text-white/60 text-xs lg:text-sm mt-0.5">You have {assignments.length} assigned classes this quarter.</p>
             </div>
@@ -1209,7 +1042,7 @@ export const TeacherPortal: React.FC = () => {
             </button>
           </div>
         </div>
-        {/* Stats row — inline inside the same card */}
+        {/* Stats row â€” inline inside the same card */}
         <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
           {[
             { val: String(assignments.length), lbl: 'My Classes', icon: BookOpen, accent: '#3b82f6' },
@@ -1233,7 +1066,7 @@ export const TeacherPortal: React.FC = () => {
         </div>
       </div>
 
-      {/* ─── Unified content card: Classes + Quarters ─── */}
+      {/* â”€â”€â”€ Unified content card: Classes + Quarters â”€â”€â”€ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {/* Classes section */}
         <div className="p-4 lg:p-5">
@@ -1274,7 +1107,7 @@ export const TeacherPortal: React.FC = () => {
         <div className="p-4 lg:p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold text-gray-800">Quarters</h3>
-            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">SY 2025–2026</span>
+            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">SY 2025â€“2026</span>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             {QUARTERS.map(q => (
@@ -1294,7 +1127,7 @@ export const TeacherPortal: React.FC = () => {
                   }
                 </div>
                 <p className="text-[10px] text-gray-400 leading-snug">
-                  {new Date(q.startDate).toLocaleDateString('en', { month: 'short', day: 'numeric' })} – {new Date(q.endDate).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
+                  {new Date(q.startDate).toLocaleDateString('en', { month: 'short', day: 'numeric' })} â€“ {new Date(q.endDate).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
                 </p>
                 <span className={`inline-block mt-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                   q.isLocked ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'
@@ -1312,9 +1145,9 @@ export const TeacherPortal: React.FC = () => {
     </div>
   );
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      SECTION: GRADING
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   const renderGrading = () => {
     const writtenActs = activities.filter(a => a.type === 'written');
     const perfActs = activities.filter(a => a.type === 'performance');
@@ -1336,7 +1169,7 @@ export const TeacherPortal: React.FC = () => {
               <select value={`${selectedSubjectId}|${selectedYearLevel}`}
                 onChange={(e) => { const [s, y] = e.target.value.split('|'); setSelectedSubjectId(s); setSelectedYearLevel(y); }}
                 className="h-9 px-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/30 transition-all">
-                {assignments.map((a, i) => { const sub = SUBJECTS.find(s => s.id === a.subjectId); return <option key={i} value={`${a.subjectId}|${a.yearLevel}`}>{sub?.name} — {a.yearLevel}</option>; })}
+                {assignments.map((a, i) => { const sub = SUBJECTS.find(s => s.id === a.subjectId); return <option key={i} value={`${a.subjectId}|${a.yearLevel}`}>{sub?.name} â€” {a.yearLevel}</option>; })}
               </select>
               <div className="flex bg-gray-100 rounded-xl p-0.5">
                 {QUARTERS.map(q => (
@@ -1369,7 +1202,7 @@ export const TeacherPortal: React.FC = () => {
           {/* Lock banner */}
           {isLocked && (
             <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 font-semibold">
-              <Lock size={13} /> Quarter is locked — grades are read-only.
+              <Lock size={13} /> Quarter is locked â€” grades are read-only.
             </div>
           )}
 
@@ -1385,7 +1218,7 @@ export const TeacherPortal: React.FC = () => {
           )}
         </div>
 
-        {/* Add Activity form — shown when edit mode is on and user clicks Add */}
+        {/* Add Activity form â€” shown when edit mode is on and user clicks Add */}
         <AnimatePresence>
           {showAddActivity && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
@@ -1416,7 +1249,7 @@ export const TeacherPortal: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Bulk action bar — visible when students are selected on a component tab */}
+        {/* Bulk action bar â€” visible when students are selected on a component tab */}
         <AnimatePresence>
           {hasSelection && gradingTab !== 'summary' && !isLocked && (
             <motion.div initial={{ opacity: 0, y: -8, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, y: -8, height: 0 }}
@@ -1574,7 +1407,7 @@ export const TeacherPortal: React.FC = () => {
                 <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-gray-50/80">
-                    {/* Checkbox header — only on component tabs when not locked */}
+                    {/* Checkbox header â€” only on component tabs when not locked */}
                     {!isLocked && (
                       <th className="py-2.5 px-2 w-8 sticky left-0 bg-gray-50/80 z-10">
                         <button onClick={toggleSelectAll} className="flex items-center justify-center w-full text-gray-400 hover:text-[#185C20] transition-colors">
@@ -1735,9 +1568,9 @@ export const TeacherPortal: React.FC = () => {
     );
   };
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      SECTION: STUDENTS
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   const renderStudents = () => (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1751,7 +1584,7 @@ export const TeacherPortal: React.FC = () => {
             <select value={`${selectedSubjectId}|${selectedYearLevel}`}
               onChange={(e) => { const [s, y] = e.target.value.split('|'); setSelectedSubjectId(s); setSelectedYearLevel(y); }}
               className="h-9 px-3 bg-gray-50 border border-gray-200 rounded-xl text-[11px] font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 transition-all">
-              {assignments.map((a, i) => { const sub = SUBJECTS.find(s => s.id === a.subjectId); return <option key={i} value={`${a.subjectId}|${a.yearLevel}`}>{sub?.name} — {a.yearLevel}</option>; })}
+              {assignments.map((a, i) => { const sub = SUBJECTS.find(s => s.id === a.subjectId); return <option key={i} value={`${a.subjectId}|${a.yearLevel}`}>{sub?.name} â€” {a.yearLevel}</option>; })}
             </select>
             <button onClick={() => setShowAddStudent(true)}
               className="h-9 flex items-center gap-1.5 px-3 bg-[#185C20] text-white rounded-xl text-[11px] font-bold hover:bg-[#1a6925] transition-colors">
@@ -1839,7 +1672,7 @@ export const TeacherPortal: React.FC = () => {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-700 truncate">{student.name}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">{student.id} • {student.yearLevel}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{student.id} â€¢ {student.yearLevel}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {computed && (
@@ -1858,9 +1691,9 @@ export const TeacherPortal: React.FC = () => {
     </div>
   );
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      SECTION: ANALYTICS
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   const renderAnalytics = () => {
     if (!analytics || !currentSubject) {
       return (
@@ -1883,7 +1716,7 @@ export const TeacherPortal: React.FC = () => {
           <select value={`${selectedSubjectId}|${selectedYearLevel}`}
             onChange={(e) => { const [s, y] = e.target.value.split('|'); setSelectedSubjectId(s); setSelectedYearLevel(y); }}
             className="h-9 px-3 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15">
-            {assignments.map((a, i) => { const sub = SUBJECTS.find(s => s.id === a.subjectId); return <option key={i} value={`${a.subjectId}|${a.yearLevel}`}>{sub?.name} — {a.yearLevel}</option>; })}
+            {assignments.map((a, i) => { const sub = SUBJECTS.find(s => s.id === a.subjectId); return <option key={i} value={`${a.subjectId}|${a.yearLevel}`}>{sub?.name} â€” {a.yearLevel}</option>; })}
           </select>
         </div>
 
@@ -1989,16 +1822,14 @@ export const TeacherPortal: React.FC = () => {
     );
   };
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      SECTION: EVALUATION
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   const renderTeacherCalendar = () => {
     const calendarTeachers = getCalendarTeachers();
-    const session = getTeacherSession();
     const currentTeacherUsername = resolveEvaluationTeacherUsername({
-      username: session?.username || teacherInfo?.username,
-      displayName: session?.displayName || teacherInfo?.displayName,
-      employeeId: session?.employeeId || teacherInfo?.employeeId,
+      username: teacherInfo?.username,
+      displayName: teacherInfo?.displayName,
     }, calendarTeachers);
     const teacherRecord = calendarTeachers.find((teacher) => teacher.username === currentTeacherUsername);
     const today = new Date();
@@ -2200,11 +2031,9 @@ export const TeacherPortal: React.FC = () => {
     const rubrics = loadEvaluationRubrics();
     const evaluations = loadTeacherEvaluations();
     const roster = getEvaluationTeachers();
-    const session = getTeacherSession();
     const currentTeacherUsername = resolveEvaluationTeacherUsername({
-      username: session?.username || teacherInfo?.username,
-      displayName: session?.displayName || teacherInfo?.displayName,
-      employeeId: session?.employeeId || teacherInfo?.employeeId,
+      username: teacherInfo?.username,
+      displayName: teacherInfo?.displayName,
     }, roster);
     const teacherRecord = roster.find((teacher) => teacher.username === currentTeacherUsername);
     const myEvaluations = [...evaluations]
@@ -2366,46 +2195,11 @@ export const TeacherPortal: React.FC = () => {
     );
   };
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      SECTION: SETTINGS
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   const renderSettings = () => (
     <div className="space-y-4">
-      {isPrincipal && (
-        <div className="bg-white rounded-2xl border border-[#185C20]/15 shadow-sm p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 justify-between">
-            <div>
-              <h3 className="font-bold text-gray-800 mb-1">Site Image Editor</h3>
-              <p className="text-[11px] text-gray-500">
-                Enable edit mode across user-side pages to update page images, including the alumni registration QR.
-              </p>
-            </div>
-            <div className="inline-flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-              <span className="text-xs font-bold text-gray-700">
-                {homeImageEditModeEnabled ? 'Image edit enabled' : 'Image edit disabled'}
-              </span>
-              <Switch
-                checked={homeImageEditModeEnabled}
-                onCheckedChange={handlePrincipalImageEditToggle}
-                className="h-6 w-11 data-[state=checked]:bg-[#185C20] data-[state=unchecked]:bg-gray-300"
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={openPrincipalImageEditor}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[#EDCD1F]/25 text-[#185C20] text-xs font-bold hover:bg-[#EDCD1F]/35 transition-colors"
-            >
-              <ImagePlus size={14} />
-              Open site image editor
-            </button>
-            <p className="text-[11px] text-gray-400">Opens the public site with edit controls enabled.</p>
-          </div>
-        </div>
-      )}
-
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <h3 className="font-bold text-gray-800 mb-1">Quarter Schedule</h3>
         <p className="text-[11px] text-gray-400 mb-4">Managed by administration. Contact admin for changes.</p>
@@ -2417,7 +2211,7 @@ export const TeacherPortal: React.FC = () => {
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold ${q.isLocked ? 'bg-gray-200 text-gray-500' : 'bg-[#EDCD1F] text-[#185C20]'}`}>Q{q.id}</div>
               <div className="flex-1">
                 <p className="text-sm font-bold text-gray-800">{q.label}</p>
-                <p className="text-[11px] text-gray-400">{new Date(q.startDate).toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' })} — {new Date(q.endDate).toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                <p className="text-[11px] text-gray-400">{new Date(q.startDate).toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' })} â€” {new Date(q.endDate).toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
               </div>
               <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${q.isLocked ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>{q.isLocked ? 'Locked' : 'Open'}</span>
             </div>
@@ -2459,849 +2253,8 @@ export const TeacherPortal: React.FC = () => {
     </div>
   );
 
-  /* ═══════════════════════════════════════════════════════
-     PRINCIPAL: DATA
-     ═══════════════════════════════════════════════════════ */
-  const SCHOOL_STATS = {
-    totalStudents: 152, totalClasses: 16,
-    schoolAvg: 85.2, passingRate: 94.7, honorStudents: 23, atRiskStudents: 12,
-    maleStudents: 78, femaleStudents: 74,
-    gradeLevels: [
-      { level: 'Grade 6', students: 16, avg: 86.1, passing: 100, male: 9, female: 7, honors: 4, atRisk: 0 },
-      { level: 'Grade 7', students: 38, avg: 84.8, passing: 92.1, male: 20, female: 18, honors: 5, atRisk: 3 },
-      { level: 'Grade 8', students: 36, avg: 85.5, passing: 94.4, male: 18, female: 18, honors: 6, atRisk: 2 },
-      { level: 'Grade 9', students: 33, avg: 86.0, passing: 96.9, male: 16, female: 17, honors: 5, atRisk: 1 },
-      { level: 'Grade 10', students: 29, avg: 84.3, passing: 93.1, male: 15, female: 14, honors: 3, atRisk: 6 },
-    ],
-    subjectPerformance: [
-      { name: 'Mathematics', avg: 83.6, passing: 91.4, highest: 98, lowest: 68, students: 152, color: '#3b82f6',
-        byGrade: [{ gl: 'Gr 6', avg: 85.2 }, { gl: 'Gr 7', avg: 82.4 }, { gl: 'Gr 8', avg: 84.1 }, { gl: 'Gr 9', avg: 83.8 }, { gl: 'Gr 10', avg: 82.5 }] },
-      { name: 'Science', avg: 84.1, passing: 93.0, highest: 97, lowest: 70, students: 152, color: '#10b981',
-        byGrade: [{ gl: 'Gr 6', avg: 86.0 }, { gl: 'Gr 7', avg: 83.5 }, { gl: 'Gr 8', avg: 84.8 }, { gl: 'Gr 9', avg: 84.2 }, { gl: 'Gr 10', avg: 82.0 }] },
-      { name: 'English', avg: 87.2, passing: 96.7, highest: 99, lowest: 72, students: 152, color: '#8b5cf6',
-        byGrade: [{ gl: 'Gr 6', avg: 88.5 }, { gl: 'Gr 7', avg: 86.8 }, { gl: 'Gr 8', avg: 87.4 }, { gl: 'Gr 9', avg: 87.9 }, { gl: 'Gr 10', avg: 85.4 }] },
-      { name: 'Filipino', avg: 85.8, passing: 94.1, highest: 98, lowest: 71, students: 152, color: '#f59e0b',
-        byGrade: [{ gl: 'Gr 6', avg: 87.0 }, { gl: 'Gr 7', avg: 85.2 }, { gl: 'Gr 8', avg: 86.1 }, { gl: 'Gr 9', avg: 85.6 }, { gl: 'Gr 10', avg: 85.1 }] },
-      { name: 'Araling Panlipunan', avg: 85.6, passing: 95.4, highest: 97, lowest: 69, students: 152, color: '#ec4899',
-        byGrade: [{ gl: 'Gr 6', avg: 86.8 }, { gl: 'Gr 7', avg: 85.0 }, { gl: 'Gr 8', avg: 85.9 }, { gl: 'Gr 9', avg: 86.2 }, { gl: 'Gr 10', avg: 84.1 }] },
-      { name: 'MAPEH', avg: 88.4, passing: 98.0, highest: 99, lowest: 74, students: 152, color: '#06b6d4',
-        byGrade: [{ gl: 'Gr 6', avg: 89.2 }, { gl: 'Gr 7', avg: 88.0 }, { gl: 'Gr 8', avg: 88.6 }, { gl: 'Gr 9', avg: 88.9 }, { gl: 'Gr 10', avg: 87.3 }] },
-      { name: 'TLE/ICT', avg: 86.9, passing: 96.1, highest: 98, lowest: 73, students: 152, color: '#84cc16',
-        byGrade: [{ gl: 'Gr 6', avg: 88.0 }, { gl: 'Gr 7', avg: 86.4 }, { gl: 'Gr 8', avg: 87.2 }, { gl: 'Gr 9', avg: 87.0 }, { gl: 'Gr 10', avg: 85.9 }] },
-      { name: 'Values Education', avg: 89.1, passing: 98.7, highest: 99, lowest: 76, students: 152, color: '#a855f7',
-        byGrade: [{ gl: 'Gr 6', avg: 90.0 }, { gl: 'Gr 7', avg: 88.6 }, { gl: 'Gr 8', avg: 89.4 }, { gl: 'Gr 9', avg: 89.5 }, { gl: 'Gr 10', avg: 88.0 }] },
-    ],
-    recentActivities: [
-      { text: 'Q3 grades submitted for Mathematics Grade 7', time: '2 hours ago', icon: CheckCircle2 },
-      { text: 'Q2 grades locked for English Grade 8', time: '5 hours ago', icon: Lock },
-      { text: '3 new activities added in Science Grade 9', time: '1 day ago', icon: Plus },
-      { text: 'Grade 10 Filipino CSV export completed', time: '1 day ago', icon: Download },
-      { text: 'Grade 6 class roster updated — 2 new enrollees', time: '2 days ago', icon: Users },
-    ],
-    atRiskStudentsList: [
-      { name: 'Marco V.', grade: 'Grade 10', avg: 73.2, failingSubjects: ['Mathematics', 'Science'], status: 'critical' as const },
-      { name: 'Ana S.', grade: 'Grade 10', avg: 74.1, failingSubjects: ['Mathematics'], status: 'critical' as const },
-      { name: 'Jose R.', grade: 'Grade 7', avg: 74.5, failingSubjects: ['Mathematics', 'Filipino'], status: 'critical' as const },
-      { name: 'Maria C.', grade: 'Grade 10', avg: 74.8, failingSubjects: ['Science'], status: 'critical' as const },
-      { name: 'Luis T.', grade: 'Grade 8', avg: 76.1, failingSubjects: ['Mathematics'], status: 'warning' as const },
-      { name: 'Carmen G.', grade: 'Grade 10', avg: 76.4, failingSubjects: [], status: 'warning' as const },
-      { name: 'Pedro A.', grade: 'Grade 7', avg: 76.8, failingSubjects: [], status: 'warning' as const },
-      { name: 'Sofia M.', grade: 'Grade 10', avg: 77.0, failingSubjects: [], status: 'warning' as const },
-      { name: 'Gabriel D.', grade: 'Grade 7', avg: 77.2, failingSubjects: [], status: 'warning' as const },
-      { name: 'Elena F.', grade: 'Grade 8', avg: 77.5, failingSubjects: [], status: 'warning' as const },
-      { name: 'Rafael B.', grade: 'Grade 10', avg: 77.8, failingSubjects: [], status: 'warning' as const },
-      { name: 'Isabella L.', grade: 'Grade 9', avg: 78.0, failingSubjects: [], status: 'warning' as const },
-    ],
-    honorStudentsList: [
-      { name: 'Patricia D.', grade: 'Grade 6', avg: 96.8, award: 'With Highest Honors' },
-      { name: 'Miguel A.', grade: 'Grade 9', avg: 96.2, award: 'With Highest Honors' },
-      { name: 'Clara R.', grade: 'Grade 8', avg: 95.7, award: 'With Highest Honors' },
-      { name: 'Daniel L.', grade: 'Grade 6', avg: 95.1, award: 'With High Honors' },
-      { name: 'Angela M.', grade: 'Grade 7', avg: 94.8, award: 'With High Honors' },
-      { name: 'Roberto S.', grade: 'Grade 9', avg: 94.3, award: 'With High Honors' },
-      { name: 'Teresa G.', grade: 'Grade 8', avg: 93.9, award: 'With Honors' },
-      { name: 'Francisco C.', grade: 'Grade 7', avg: 93.5, award: 'With Honors' },
-      { name: 'Lucia V.', grade: 'Grade 10', avg: 93.2, award: 'With Honors' },
-      { name: 'Antonio B.', grade: 'Grade 6', avg: 92.8, award: 'With Honors' },
-    ],
-  };
-
-  /* ═══════════════════════════════════════════════════════
-     PRINCIPAL: DASHBOARD
-     ═══════════════════════════════════════════════════════ */
-  const renderPrincipalDashboard = () => (
-    <div className="space-y-4">
-      {/* Hero */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="relative bg-gradient-to-br from-[#185C20] via-[#1a6925] to-[#0f4517] p-5 lg:p-7 text-white overflow-hidden">
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute top-0 right-0 w-80 h-80 bg-[#EDCD1F] rounded-full -translate-y-1/2 translate-x-1/3" />
-            <div className="absolute bottom-0 left-0 w-60 h-60 bg-white rounded-full translate-y-1/2 -translate-x-1/4" />
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-1">
-              <Shield size={14} className="text-[#EDCD1F]" />
-              <p className="text-[#EDCD1F] text-[10px] lg:text-xs font-bold uppercase tracking-[0.2em]">Principal&apos;s Dashboard &bull; SY 2025–2026</p>
-            </div>
-            <h2 className="text-lg lg:text-2xl font-bold">Good day, {teacherInfo?.displayName?.split(' ').slice(0, 2).join(' ') || 'Principal'}!</h2>
-            <p className="text-white/60 text-xs lg:text-sm mt-0.5">School overview for {currentQuarter?.label || '3rd Quarter'}</p>
-          </div>
-        </div>
-        {/* Key stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
-          {[
-            { val: String(SCHOOL_STATS.totalStudents), lbl: 'Total Students', icon: GraduationCap, accent: '#10b981' },
-            { val: `${SCHOOL_STATS.passingRate}%`, lbl: 'Passing Rate', icon: Target, accent: '#185C20' },
-            { val: SCHOOL_STATS.schoolAvg.toFixed(1), lbl: 'School Average', icon: TrendingUp, accent: '#3b82f6' },
-            { val: String(SCHOOL_STATS.honorStudents), lbl: 'Honor Students', icon: Trophy, accent: '#EDCD1F' },
-          ].map((s, i) => {
-            const Icon = s.icon;
-            return (
-              <div key={i} className="flex items-center gap-3 px-4 py-3.5 lg:py-4">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: s.accent + '14' }}>
-                  <Icon size={16} style={{ color: s.accent }} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-lg lg:text-xl font-bold text-gray-900 tabular-nums">{s.val}</p>
-                  <p className="text-[10px] text-gray-400 -mt-0.5">{s.lbl}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Two-column: Subject snapshot + Activity feed */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Subject performance snapshot */}
-        <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-gray-800">Subject Performance</h3>
-            <button onClick={() => setActiveSection('academics')} className="text-[10px] font-bold text-[#185C20] hover:underline">View All</button>
-          </div>
-          <div className="px-4 lg:px-5 pb-4 lg:pb-5 space-y-2">
-            {SCHOOL_STATS.subjectPerformance.slice(0, 5).map((sub, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50/70 hover:bg-gray-100/80 transition-colors">
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: sub.color + '18' }}>
-                  <BookOpen size={14} style={{ color: sub.color }} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-bold text-gray-800 truncate">{sub.name}</p>
-                  <p className="text-[10px] text-gray-400">{sub.passing}% passing &middot; Range: {sub.lowest}–{sub.highest}</p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className={`text-sm font-bold tabular-nums ${sub.avg >= 85 ? 'text-emerald-600' : sub.avg >= 80 ? 'text-blue-600' : 'text-amber-600'}`}>{sub.avg.toFixed(1)}</p>
-                  <p className="text-[9px] text-gray-400">avg</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Activity feed */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3">
-            <h3 className="text-sm font-bold text-gray-800">Recent Activity</h3>
-          </div>
-          <div className="px-4 lg:px-5 pb-4 lg:pb-5 space-y-1">
-            {SCHOOL_STATS.recentActivities.map((a, i) => {
-              const Icon = a.icon;
-              return (
-                <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-50 last:border-0">
-                  <div className="w-7 h-7 rounded-lg bg-[#185C20]/8 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Icon size={13} className="text-[#185C20]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] text-gray-700 leading-relaxed">{a.text}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1"><Clock size={10} /> {a.time}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Grade levels */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-800">Grade Level Overview</h3>
-          <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">{currentQuarter?.label}</span>
-        </div>
-        <div className="px-4 lg:px-5 pb-4 lg:pb-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
-            {SCHOOL_STATS.gradeLevels.map((gl, i) => (
-              <div key={i} className="p-3.5 rounded-xl bg-gray-50/70 border border-gray-100/80">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-gray-700">{gl.level}</span>
-                  <School size={13} className="text-gray-300" />
-                </div>
-                <p className="text-xl font-bold text-gray-900 tabular-nums">{gl.avg.toFixed(1)}</p>
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[10px] text-gray-400">{gl.students} students</span>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${gl.passing >= 95 ? 'bg-emerald-50 text-emerald-600' : gl.passing >= 90 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>
-                    {gl.passing}% passing
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* At-risk students alert */}
-      <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
-        <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={14} className="text-red-500" />
-            <h3 className="text-sm font-bold text-gray-800">At-Risk Students</h3>
-          </div>
-          <button onClick={() => setActiveSection('registration')} className="text-[10px] font-bold text-[#185C20] hover:underline">View All</button>
-        </div>
-        <div className="px-4 lg:px-5 pb-4 lg:pb-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {SCHOOL_STATS.atRiskStudentsList.filter(s => s.status === 'critical').map((s, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-red-50/60 border border-red-100/80">
-                <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-bold text-red-600">{s.name.split(' ').map(n => n[0]).join('')}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-bold text-gray-800 truncate">{s.name}</p>
-                  <p className="text-[10px] text-gray-400">{s.grade} &middot; {s.failingSubjects.join(', ')}</p>
-                </div>
-                <span className="text-sm font-bold text-red-600 tabular-nums">{s.avg.toFixed(1)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Quarter progress */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-4 lg:p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-gray-800">Quarter Status</h3>
-          <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">SY 2025–2026</span>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          {QUARTERS.map(q => {
-            const isCurrentQ = selectedQuarter === q.id;
-            return (
-              <div key={q.id} className={`relative p-3 rounded-xl border-2 transition-all ${
-                isCurrentQ ? 'border-[#EDCD1F] bg-[#EDCD1F]/5' : q.isLocked ? 'border-gray-100 bg-gray-50/50 opacity-60' : 'border-gray-100 bg-gray-50/50'
-              }`}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-bold text-gray-700">Q{q.id}</span>
-                  {q.isLocked ? <Lock size={11} className="text-gray-400" /> : <CheckCircle2 size={11} className="text-emerald-500" />}
-                </div>
-                <p className="text-[10px] text-gray-400 leading-snug">
-                  {new Date(q.startDate).toLocaleDateString('en', { month: 'short', day: 'numeric' })} – {new Date(q.endDate).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
-                </p>
-                <span className={`inline-block mt-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${q.isLocked ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>
-                  {q.isLocked ? 'Locked' : 'Open'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     PRINCIPAL: ENROLLMENT
-     ═══════════════════════════════════════════════════════ */
-  const renderPrincipalEnrollment = () => (
-    <div className="space-y-4">
-      {/* Enrollment summary */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3">
-          <h3 className="text-sm font-bold text-gray-800">Student Enrollment Summary</h3>
-          <p className="text-[10px] text-gray-400 mt-0.5">SY 2025–2026 &middot; {SCHOOL_STATS.totalStudents} total enrolled</p>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100 border-t border-gray-100">
-          {[
-            { val: String(SCHOOL_STATS.totalStudents), lbl: 'Total Enrolled', icon: Users, accent: '#185C20' },
-            { val: String(SCHOOL_STATS.maleStudents), lbl: 'Male', icon: Users, accent: '#3b82f6' },
-            { val: String(SCHOOL_STATS.femaleStudents), lbl: 'Female', icon: Users, accent: '#ec4899' },
-            { val: String(SCHOOL_STATS.atRiskStudents), lbl: 'At Risk', icon: AlertTriangle, accent: '#ef4444' },
-          ].map((s, i) => {
-            const Icon = s.icon;
-            return (
-              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: s.accent + '14' }}>
-                  <Icon size={16} style={{ color: s.accent }} />
-                </div>
-                <div>
-                  <p className="text-lg font-bold text-gray-900 tabular-nums">{s.val}</p>
-                  <p className="text-[10px] text-gray-400 -mt-0.5">{s.lbl}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Per grade level enrollment table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3">
-          <h3 className="text-sm font-bold text-gray-800">Enrollment by Grade Level</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50/80 border-y border-gray-100">
-                <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Grade Level</th>
-                <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Total</th>
-                <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Male</th>
-                <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Female</th>
-                <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Average</th>
-                <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Passing</th>
-                <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Honors</th>
-                <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">At Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {SCHOOL_STATS.gradeLevels.map((gl, i) => (
-                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
-                      <School size={13} className="text-[#185C20]" />
-                      <span className="font-bold text-gray-700">{gl.level}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-center font-bold text-gray-800">{gl.students}</td>
-                  <td className="py-3 px-4 text-center text-blue-600">{gl.male}</td>
-                  <td className="py-3 px-4 text-center text-pink-600">{gl.female}</td>
-                  <td className="py-3 px-4 text-center">
-                    <span className={`font-bold ${gl.avg >= 85 ? 'text-emerald-600' : 'text-amber-600'}`}>{gl.avg.toFixed(1)}</span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${gl.passing >= 95 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                      {gl.passing}%
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="text-[10px] font-bold bg-[#EDCD1F]/15 text-[#185C20] px-1.5 py-0.5 rounded-full">{gl.honors}</span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    {gl.atRisk > 0 ? (
-                      <span className="text-[10px] font-bold bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">{gl.atRisk}</span>
-                    ) : (
-                      <span className="text-[10px] text-gray-300">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              <tr className="bg-[#185C20]/5 border-t-2 border-[#185C20]/10">
-                <td className="py-3 px-4 font-bold text-[#185C20]">Total</td>
-                <td className="py-3 px-4 text-center font-bold text-[#185C20]">{SCHOOL_STATS.totalStudents}</td>
-                <td className="py-3 px-4 text-center font-bold text-blue-600">{SCHOOL_STATS.maleStudents}</td>
-                <td className="py-3 px-4 text-center font-bold text-pink-600">{SCHOOL_STATS.femaleStudents}</td>
-                <td className="py-3 px-4 text-center font-bold text-emerald-600">{SCHOOL_STATS.schoolAvg.toFixed(1)}</td>
-                <td className="py-3 px-4 text-center font-bold text-emerald-600">{SCHOOL_STATS.passingRate}%</td>
-                <td className="py-3 px-4 text-center font-bold text-[#185C20]">{SCHOOL_STATS.honorStudents}</td>
-                <td className="py-3 px-4 text-center font-bold text-red-600">{SCHOOL_STATS.atRiskStudents}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Honor students */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3 flex items-center gap-2">
-          <Trophy size={14} className="text-[#EDCD1F]" />
-          <h3 className="text-sm font-bold text-gray-800">Honor Students</h3>
-          <span className="text-[10px] font-bold text-gray-300 ml-auto">{SCHOOL_STATS.honorStudentsList.length} students</span>
-        </div>
-        <div className="px-4 lg:px-5 pb-4 lg:pb-5 space-y-1.5">
-          {SCHOOL_STATS.honorStudentsList.map((s, i) => (
-            <div key={i} className="flex items-center gap-3 p-2.5 rounded-xl bg-gray-50/70 hover:bg-gray-100/60 transition-colors">
-              <span className={`text-[11px] font-bold w-5 text-center flex-shrink-0 ${i < 3 ? 'text-[#EDCD1F]' : 'text-gray-400'}`}>{i + 1}</span>
-              <div className="w-8 h-8 rounded-lg bg-[#EDCD1F]/10 flex items-center justify-center flex-shrink-0">
-                <span className="text-[10px] font-bold text-[#185C20]">{s.name.split(' ').map(n => n[0]).join('')}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-bold text-gray-800 truncate">{s.name}</p>
-                <p className="text-[10px] text-gray-400">{s.grade}</p>
-              </div>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-                s.award === 'With Highest Honors' ? 'bg-[#EDCD1F]/20 text-[#185C20]' :
-                s.award === 'With High Honors' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
-              }`}>{s.award}</span>
-              <span className="text-sm font-bold text-emerald-600 tabular-nums flex-shrink-0">{s.avg.toFixed(1)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* At-risk students */}
-      <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
-        <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3 flex items-center gap-2">
-          <AlertTriangle size={14} className="text-red-500" />
-          <h3 className="text-sm font-bold text-gray-800">At-Risk Students</h3>
-          <span className="text-[10px] font-bold text-red-400 ml-auto">{SCHOOL_STATS.atRiskStudentsList.length} students below 80</span>
-        </div>
-        <div className="px-4 lg:px-5 pb-4 lg:pb-5 space-y-1.5">
-          {SCHOOL_STATS.atRiskStudentsList.map((s, i) => (
-            <div key={i} className={`flex items-center gap-3 p-2.5 rounded-xl transition-colors ${
-              s.status === 'critical' ? 'bg-red-50/60 border border-red-100/80' : 'bg-amber-50/40 border border-amber-100/60'
-            }`}>
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                s.status === 'critical' ? 'bg-red-100' : 'bg-amber-100'
-              }`}>
-                <span className={`text-[10px] font-bold ${s.status === 'critical' ? 'text-red-600' : 'text-amber-700'}`}>
-                  {s.name.split(' ').map(n => n[0]).join('')}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-bold text-gray-800 truncate">{s.name}</p>
-                <p className="text-[10px] text-gray-400">
-                  {s.grade}
-                  {s.failingSubjects.length > 0 && <> &middot; Failing: <span className="text-red-500">{s.failingSubjects.join(', ')}</span></>}
-                </p>
-              </div>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-                s.status === 'critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-              }`}>{s.status === 'critical' ? 'Critical' : 'Watch'}</span>
-              <span className={`text-sm font-bold tabular-nums flex-shrink-0 ${s.status === 'critical' ? 'text-red-600' : 'text-amber-600'}`}>{s.avg.toFixed(1)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  /* ═══════════════════════════════════════════════════════
-     PRINCIPAL: ACADEMICS
-     ═══════════════════════════════════════════════════════ */
-  const renderPrincipalAcademics = () => {
-    const allClasses: { subject: string; yearLevel: string; students: number; avg: number; color: string }[] = [];
-    Object.entries(TEACHER_ASSIGNMENTS).forEach(([_key, assigns]) => {
-      assigns.forEach(a => {
-        const sub = SUBJECTS.find(s => s.id === a.subjectId);
-        const studs = generateStudents(a.yearLevel);
-        const subPerf = SCHOOL_STATS.subjectPerformance.find(sp => sub?.name?.includes(sp.name.split(' ')[0]) || sp.name.includes(sub?.name?.split(' ')[0] || ''));
-        allClasses.push({
-          subject: sub?.name || a.subjectId,
-          yearLevel: a.yearLevel,
-          students: studs.length,
-          avg: 80 + ((a.subjectId + a.yearLevel).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 100) / 10,
-          color: subPerf?.color || '#999',
-        });
-      });
-    });
-
-    return (
-      <div className="space-y-4">
-        {/* Subject performance cards */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3">
-            <h3 className="text-sm font-bold text-gray-800">Subject Performance Overview</h3>
-            <p className="text-[10px] text-gray-400 mt-0.5">{SCHOOL_STATS.subjectPerformance.length} subjects &middot; {currentQuarter?.label}</p>
-          </div>
-          <div className="px-4 lg:px-5 pb-4 lg:pb-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-              {SCHOOL_STATS.subjectPerformance.map((sub, i) => (
-                <div key={i} className="p-3.5 rounded-xl bg-gray-50/70 border border-gray-100/80 hover:border-gray-200 transition-colors">
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: sub.color + '18' }}>
-                      <BookOpen size={13} style={{ color: sub.color }} />
-                    </div>
-                    <span className="text-[11px] font-bold text-gray-700 truncate">{sub.name}</span>
-                  </div>
-                  <p className={`text-2xl font-bold tabular-nums ${sub.avg >= 85 ? 'text-emerald-600' : sub.avg >= 80 ? 'text-blue-600' : 'text-amber-600'}`}>{sub.avg.toFixed(1)}</p>
-                  <div className="flex items-center justify-between mt-2">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${sub.passing >= 95 ? 'bg-emerald-50 text-emerald-600' : sub.passing >= 90 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>
-                      {sub.passing}% pass
-                    </span>
-                    <span className="text-[10px] text-gray-400">{sub.lowest}–{sub.highest}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Subject × Grade Level heatmap */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3">
-            <h3 className="text-sm font-bold text-gray-800">Subject × Grade Level Performance</h3>
-            <p className="text-[10px] text-gray-400 mt-0.5">Average grades per subject across all grade levels</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-gray-50/80 border-y border-gray-100">
-                  <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider min-w-[140px]">Subject</th>
-                  {SCHOOL_STATS.subjectPerformance[0].byGrade.map((g, i) => (
-                    <th key={i} className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">{g.gl}</th>
-                  ))}
-                  <th className="text-center py-2.5 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider bg-gray-100/50">Avg</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SCHOOL_STATS.subjectPerformance.map((sub, i) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sub.color }} />
-                        <span className="font-bold text-gray-700 truncate">{sub.name}</span>
-                      </div>
-                    </td>
-                    {sub.byGrade.map((g, j) => {
-                      const bg = g.avg >= 88 ? 'bg-emerald-100 text-emerald-800' : g.avg >= 85 ? 'bg-emerald-50 text-emerald-700' : g.avg >= 82 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700';
-                      return (
-                        <td key={j} className="py-2.5 px-3 text-center">
-                          <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${bg}`}>{g.avg.toFixed(1)}</span>
-                        </td>
-                      );
-                    })}
-                    <td className="py-2.5 px-3 text-center bg-gray-50/50">
-                      <span className={`text-[11px] font-bold ${sub.avg >= 85 ? 'text-emerald-600' : 'text-amber-600'}`}>{sub.avg.toFixed(1)}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* All classes table */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3">
-            <h3 className="text-sm font-bold text-gray-800">All Class Sections</h3>
-            <p className="text-[10px] text-gray-400 mt-0.5">{allClasses.length} sections across all subjects</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-gray-50/80 border-y border-gray-100">
-                  <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Subject</th>
-                  <th className="text-left py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Grade Level</th>
-                  <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Students</th>
-                  <th className="text-center py-2.5 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Class Avg</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allClasses.map((c, i) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }} />
-                        <span className="font-semibold text-gray-700">{c.subject}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-4 text-gray-600">{c.yearLevel}</td>
-                    <td className="py-2.5 px-4 text-center font-bold text-gray-600">{c.students}</td>
-                    <td className="py-2.5 px-4 text-center">
-                      <span className={`font-bold ${c.avg >= 85 ? 'text-emerald-600' : c.avg >= 80 ? 'text-blue-600' : 'text-amber-600'}`}>
-                        {c.avg.toFixed(1)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  /* ═══════════════════════════════════════════════════════
-     PRINCIPAL: ANALYTICS
-     ═══════════════════════════════════════════════════════ */
-  const renderPrincipalAnalytics = () => {
-    const distribution = { 'Outstanding (90–100)': 34, 'Very Satisfactory (85–89)': 42, 'Satisfactory (80–84)': 38, 'Fairly Satisfactory (75–79)': 26, 'Did Not Meet (Below 75)': 12 };
-    const totalStudents = Object.values(distribution).reduce((a, b) => a + b, 0);
-    const barColors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
-
-    return (
-      <div className="space-y-4">
-        {/* School-wide stats */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 lg:px-5 pt-4 lg:pt-5 pb-3">
-            <h3 className="text-sm font-bold text-gray-800">School-Wide Student Analytics</h3>
-            <p className="text-[10px] text-gray-400 mt-0.5">{currentQuarter?.label} &middot; {totalStudents} students across all grade levels</p>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100 border-t border-gray-100">
-            {[
-              { val: SCHOOL_STATS.schoolAvg.toFixed(1), lbl: 'School Average', icon: TrendingUp, accent: '#185C20' },
-              { val: `${SCHOOL_STATS.passingRate}%`, lbl: 'Passing Rate', icon: Target, accent: '#10b981' },
-              { val: String(SCHOOL_STATS.honorStudents), lbl: 'Honor Students', icon: Trophy, accent: '#EDCD1F' },
-              { val: String(SCHOOL_STATS.atRiskStudents), lbl: 'At Risk', icon: AlertTriangle, accent: '#ef4444' },
-            ].map((s, i) => {
-              const Icon = s.icon;
-              return (
-                <div key={i} className="flex items-center gap-3 px-4 py-4">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: s.accent + '14' }}>
-                    <Icon size={16} style={{ color: s.accent }} />
-                  </div>
-                  <div>
-                    <p className="text-lg font-bold text-gray-900 tabular-nums">{s.val}</p>
-                    <p className="text-[10px] text-gray-400 -mt-0.5">{s.lbl}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Grade distribution */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-4 lg:p-5">
-          <h3 className="text-sm font-bold text-gray-800 mb-4">Student Grade Distribution (School-Wide)</h3>
-          <div className="space-y-3">
-            {Object.entries(distribution).map(([label, count], i) => {
-              const pct = (count / totalStudents) * 100;
-              return (
-                <div key={i}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] text-gray-600">{label}</span>
-                    <span className="text-[11px] font-bold text-gray-800">{count} students ({pct.toFixed(1)}%)</span>
-                  </div>
-                  <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }} animate={{ width: `${pct}%` }}
-                      transition={{ duration: 0.8, delay: i * 0.1 }}
-                      className="h-full rounded-full"
-                      style={{ backgroundColor: barColors[i] }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Per-grade level comparison */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-4 lg:p-5">
-          <h3 className="text-sm font-bold text-gray-800 mb-4">Grade Level Comparison</h3>
-          <div className="space-y-2.5">
-            {SCHOOL_STATS.gradeLevels.map((gl, i) => {
-              const barWidth = ((gl.avg - 75) / 25) * 100;
-              return (
-                <div key={i} className="flex items-center gap-3">
-                  <span className="text-[11px] font-bold text-gray-600 w-16 flex-shrink-0">{gl.level}</span>
-                  <div className="flex-1 h-8 bg-gray-100 rounded-lg overflow-hidden relative">
-                    <motion.div
-                      initial={{ width: 0 }} animate={{ width: `${Math.min(barWidth, 100)}%` }}
-                      transition={{ duration: 0.8, delay: i * 0.1 }}
-                      className="h-full rounded-lg flex items-center justify-end pr-2"
-                      style={{ backgroundColor: gl.avg >= 86 ? '#10b981' : gl.avg >= 84 ? '#3b82f6' : '#f59e0b' }}
-                    >
-                      <span className="text-[10px] font-bold text-white">{gl.avg.toFixed(1)}</span>
-                    </motion.div>
-                  </div>
-                  <div className="flex-shrink-0 w-12 text-right">
-                    <span className={`text-[10px] font-bold ${gl.passing >= 95 ? 'text-emerald-600' : 'text-amber-600'}`}>{gl.passing}%</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-4 mt-4 pt-3 border-t border-gray-100">
-            <span className="text-[10px] text-gray-400">Legend:</span>
-            {[{ color: '#10b981', label: '≥86' }, { color: '#3b82f6', label: '84–85' }, { color: '#f59e0b', label: '<84' }].map((l, i) => (
-              <div key={i} className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: l.color }} />
-                <span className="text-[10px] text-gray-500">{l.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Subject performance comparison */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-4 lg:p-5">
-          <h3 className="text-sm font-bold text-gray-800 mb-4">Subject-Level Student Performance</h3>
-          <div className="space-y-2.5">
-            {[...SCHOOL_STATS.subjectPerformance].sort((a, b) => b.avg - a.avg).map((sub, i) => {
-              const barWidth = ((sub.avg - 75) / 25) * 100;
-              return (
-                <div key={i}>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 w-36 flex-shrink-0">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: sub.color }} />
-                      <span className="text-[11px] font-bold text-gray-600 truncate">{sub.name}</span>
-                    </div>
-                    <div className="flex-1 h-7 bg-gray-100 rounded-lg overflow-hidden relative">
-                      <motion.div
-                        initial={{ width: 0 }} animate={{ width: `${Math.min(barWidth, 100)}%` }}
-                        transition={{ duration: 0.8, delay: i * 0.08 }}
-                        className="h-full rounded-lg flex items-center justify-end pr-2"
-                        style={{ backgroundColor: sub.color }}
-                      >
-                        <span className="text-[10px] font-bold text-white">{sub.avg.toFixed(1)}</span>
-                      </motion.div>
-                    </div>
-                    <div className="flex-shrink-0 w-14 text-right">
-                      <span className={`text-[10px] font-bold ${sub.passing >= 95 ? 'text-emerald-600' : sub.passing >= 90 ? 'text-blue-600' : 'text-amber-600'}`}>{sub.passing}%</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Top performers and bottom grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Top-performing grade levels */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 lg:p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Star size={14} className="text-[#EDCD1F]" />
-              <h3 className="text-sm font-bold text-gray-800">Top Grade Levels</h3>
-            </div>
-            <div className="space-y-2">
-              {[...SCHOOL_STATS.gradeLevels].sort((a, b) => b.avg - a.avg).map((gl, i) => (
-                <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-gray-50/60">
-                  <span className={`text-[11px] font-bold w-5 text-center ${i === 0 ? 'text-[#EDCD1F]' : i === 1 ? 'text-gray-400' : 'text-amber-700'}`}>{i + 1}</span>
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center bg-[#185C20]/8">
-                    <School size={13} className="text-[#185C20]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-bold text-gray-700">{gl.level}</p>
-                    <p className="text-[10px] text-gray-400">{gl.students} students &middot; {gl.passing}% passing</p>
-                  </div>
-                  <span className="text-sm font-bold text-emerald-600 tabular-nums">{gl.avg.toFixed(1)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Highest-performing subjects */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 lg:p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Trophy size={14} className="text-[#EDCD1F]" />
-              <h3 className="text-sm font-bold text-gray-800">Top Subjects by Student Avg</h3>
-            </div>
-            <div className="space-y-2">
-              {[...SCHOOL_STATS.subjectPerformance].sort((a, b) => b.avg - a.avg).map((sub, i) => (
-                <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-gray-50/60">
-                  <span className={`text-[11px] font-bold w-5 text-center ${i === 0 ? 'text-[#EDCD1F]' : i === 1 ? 'text-gray-400' : 'text-amber-700'}`}>{i + 1}</span>
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center" style={{ backgroundColor: sub.color + '18' }}>
-                    <BookOpen size={13} style={{ color: sub.color }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-bold text-gray-700 truncate">{sub.name}</p>
-                    <p className="text-[10px] text-gray-400">{sub.passing}% passing &middot; Range: {sub.lowest}–{sub.highest}</p>
-                  </div>
-                  <span className="text-sm font-bold text-emerald-600 tabular-nums">{sub.avg.toFixed(1)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Subjects needing attention */}
-        <div className="bg-white rounded-2xl border border-amber-100 shadow-sm overflow-hidden p-4 lg:p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle size={14} className="text-amber-500" />
-            <h3 className="text-sm font-bold text-gray-800">Subjects Needing Attention</h3>
-          </div>
-          <div className="space-y-2.5">
-            {[...SCHOOL_STATS.subjectPerformance].filter(s => s.passing < 95).sort((a, b) => a.passing - b.passing).map((sub, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-amber-50/50 border border-amber-100/60">
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: sub.color + '18' }}>
-                  <BookOpen size={14} style={{ color: sub.color }} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-bold text-gray-800">{sub.name}</p>
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                    <span className="text-[10px] text-gray-400">Avg: <span className="font-bold text-gray-600">{sub.avg.toFixed(1)}</span></span>
-                    <span className="text-[10px] text-gray-400">Lowest: <span className="font-bold text-red-500">{sub.lowest}</span></span>
-                    <span className="text-[10px] text-gray-400">Pass Rate: <span className={`font-bold ${sub.passing < 93 ? 'text-red-500' : 'text-amber-600'}`}>{sub.passing}%</span></span>
-                  </div>
-                  {/* Show which grade levels struggle most */}
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {sub.byGrade.filter(g => g.avg < 84).map((g, j) => (
-                      <span key={j} className="text-[9px] font-bold bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">{g.gl}: {g.avg.toFixed(1)}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  <span className={`text-lg font-bold tabular-nums ${sub.passing < 93 ? 'text-red-600' : 'text-amber-600'}`}>{sub.passing}%</span>
-                  <span className="text-[9px] text-gray-400">pass rate</span>
-                </div>
-              </div>
-            ))}
-            {SCHOOL_STATS.subjectPerformance.filter(s => s.passing < 95).length === 0 && (
-              <div className="text-center py-6">
-                <CheckCircle2 size={24} className="text-emerald-400 mx-auto mb-2" />
-                <p className="text-xs text-gray-500">All subjects have ≥95% passing rate!</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   const renderContent = () => {
-    if (isAdminRole) {
-      switch (activeSection) {
-        case 'dashboard':
-          return (
-            <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 lg:p-6">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div>
-                    <p className="text-[11px] font-bold text-[#185C20] uppercase tracking-wider">Admin Role</p>
-                    <h2 className="mt-1 text-2xl font-bold text-gray-900">Administrative Dashboard Access</h2>
-                    <p className="text-sm text-gray-500 mt-1.5 max-w-2xl">
-                      This account can manage faculty and staff, alumni records, page content, and site settings with full CRUD controls.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => window.location.assign('/admin')}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#185C20] text-white text-sm font-semibold hover:bg-[#144a1a] transition-colors"
-                  >
-                    <Shield size={15} />
-                    Open Admin Dashboard
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                {[
-                  'Faculty and staff setup',
-                  'Alumni records and listings',
-                  'Website pages and content updates',
-                ].map((capability) => (
-                  <div key={capability} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-                    <p className="text-sm font-semibold text-gray-800">{capability}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        case 'settings':
-          return renderSettings();
-        default:
-          return null;
-      }
-    }
-
-    if (isPrincipal) {
-      switch (activeSection) {
-        case 'dashboard': return renderPrincipalDashboard();
-        case 'subjects': return <PrincipalSubjects />;
-        case 'teachers': return <PrincipalTeachers />;
-        case 'registration': return <PrincipalRegistration />;
-        case 'evaluation': return <PrincipalEvaluation />;
-        case 'calendar': return <PrincipalCalendar />;
-        case 'yearly-rollover': return <PrincipalYearSetup />;
-        case 'academics': return (
-          <div className="space-y-6">
-            {renderPrincipalAcademics()}
-            {renderPrincipalAnalytics()}
-          </div>
-        );
-        case 'settings': return renderSettings();
-        default: return renderPrincipalDashboard();
-      }
-    }
     switch (activeSection) {
       case 'dashboard': return renderDashboard();
       case 'grading': return renderGrading();
@@ -3314,13 +2267,13 @@ export const TeacherPortal: React.FC = () => {
     }
   };
 
-  /* ═══════════════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      LAYOUT
-     ═══════════════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   return (
     <div className="h-[100dvh] overflow-hidden bg-[#f8f8f6] selection:bg-[#EDCD1F] selection:text-[#185C20] flex">
 
-      {/* ── Mobile: More bottom sheet ── */}
+      {/* â”€â”€ Mobile: More bottom sheet â”€â”€ */}
       <AnimatePresence>
         {moreMenuOpen && (
           <>
@@ -3354,17 +2307,17 @@ export const TeacherPortal: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* ── Desktop Sidebar ── */}
+      {/* â”€â”€ Desktop Sidebar â”€â”€ */}
       <aside className="hidden lg:flex flex-col w-[260px] flex-shrink-0 bg-white border-r border-gray-100 sticky top-0 h-screen">
         {/* Brand */}
         <div className="px-5 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[#185C20] flex items-center justify-center flex-shrink-0 shadow-md shadow-[#185C20]/20">
-              {isPrincipal || isAdminRole ? <Shield size={20} className="text-[#EDCD1F]" /> : <GraduationCap size={20} className="text-[#EDCD1F]" />}
+              <GraduationCap size={20} className="text-[#EDCD1F]" />
             </div>
             <div>
               <p className="text-sm font-bold text-gray-800">MMPNS</p>
-              <p className="text-[10px] text-gray-400">{isPrincipal ? "Principal's Office" : isAdminRole ? 'Admin Portal' : 'Grading System'}</p>
+              <p className="text-[10px] text-gray-400">Grading System</p>
             </div>
           </div>
         </div>
@@ -3393,7 +2346,7 @@ export const TeacherPortal: React.FC = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-bold text-gray-700 truncate">{teacherInfo?.displayName}</p>
-              <p className="text-[10px] text-gray-400">{isPrincipal ? 'School Principal' : isAdminRole ? 'Portal Administrator' : `${teacherInfo?.department} Dept.`}</p>
+              <p className="text-[10px] text-gray-400">{teacherInfo?.department ? `${teacherInfo.department} Dept.` : 'Teacher'}</p>
             </div>
           </div>
           <button onClick={handleLogout}
@@ -3403,7 +2356,7 @@ export const TeacherPortal: React.FC = () => {
         </div>
       </aside>
 
-      {/* ── Main column ── */}
+      {/* â”€â”€ Main column â”€â”€ */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
         <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 lg:px-8 h-14 lg:h-16 flex items-center justify-between sticky top-0 z-20">
@@ -3415,7 +2368,7 @@ export const TeacherPortal: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-bold text-gray-800 truncate">{teacherInfo?.displayName}</p>
-                <p className="text-[10px] text-gray-400 -mt-0.5">{isPrincipal ? 'School Principal' : isAdminRole ? 'Portal Administrator' : `${teacherInfo?.department} Dept.`}</p>
+                <p className="text-[10px] text-gray-400 -mt-0.5">{teacherInfo?.department ? `${teacherInfo.department} Dept.` : 'Teacher'}</p>
               </div>
             </div>
             {/* Desktop title */}
@@ -3490,8 +2443,8 @@ export const TeacherPortal: React.FC = () => {
                           <p className="text-xs font-semibold text-gray-700 mt-1 break-all">{mobileDetailEntry.student.id}</p>
                         </div>
                         <div className="rounded-xl border border-gray-100 p-3">
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Gender • Level</p>
-                          <p className="text-xs font-semibold text-gray-700 mt-1">{mobileDetailEntry.student.gender} • {mobileDetailEntry.student.yearLevel}</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Gender â€¢ Level</p>
+                          <p className="text-xs font-semibold text-gray-700 mt-1">{mobileDetailEntry.student.gender} â€¢ {mobileDetailEntry.student.yearLevel}</p>
                         </div>
                       </div>
 
@@ -3592,7 +2545,7 @@ export const TeacherPortal: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* ── Bottom nav (mobile/tablet) ── */}
+      {/* â”€â”€ Bottom nav (mobile/tablet) â”€â”€ */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white/90 backdrop-blur-xl border-t border-gray-100 lg:hidden">
         <div className="flex items-center justify-around px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {bottomNavItems.map(item => {

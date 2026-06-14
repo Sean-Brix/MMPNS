@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Quote, Sparkles } from 'lucide-react';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { SITE_IMAGE_DEFAULTS } from '../../../utils/siteImageSlots';
 
 interface FoundressSectionProps {
   foundressImg: string;
@@ -34,6 +35,7 @@ export const FoundressSection: React.FC<FoundressSectionProps> = ({ foundressImg
               >
                 <ImageWithFallback 
                   src={foundressImg} 
+                  fallbackSrc={SITE_IMAGE_DEFAULTS.sharedMariaPia}
                   alt="Madre Maria Pia Notari" 
                   className="w-full h-full object-cover"
                 />

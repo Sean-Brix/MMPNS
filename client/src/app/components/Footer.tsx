@@ -1,7 +1,8 @@
 import React from 'react';
 import { Facebook, Mail, Phone, MapPin, ExternalLink, Heart, Shield, Award, GraduationCap, ChevronRight } from 'lucide-react';
 import { useAppNavigate } from '../hooks/useAppNavigate';
-import { readSiteImageSlots } from '../../utils/siteImageSlots';
+import { ImageWithFallback } from './figma/ImageWithFallback';
+import { SITE_IMAGE_DEFAULTS, readSiteImageSlots } from '../../utils/siteImageSlots';
 
 export const Footer: React.FC = () => {
   const goTo = useAppNavigate();
@@ -18,7 +19,12 @@ export const Footer: React.FC = () => {
           {/* School Identity */}
           <div className="space-y-8">
             <div className="flex items-center gap-4">
-              <img src={logo} alt="MMPNS Logo" className="h-20 w-20 brightness-0 invert" />
+              <ImageWithFallback
+                src={logo}
+                fallbackSrc={SITE_IMAGE_DEFAULTS.brandLogo}
+                alt="MMPNS Logo"
+                className="h-20 w-20 brightness-0 invert"
+              />
               <div>
                 <h2 className="font-serif font-bold text-3xl leading-none">MMPNS</h2>
                 <p className="text-[10px] text-[#EDCD1F] font-sans font-bold uppercase tracking-[0.2em] mt-2">Est. 1988</p>

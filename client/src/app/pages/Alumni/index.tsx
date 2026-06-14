@@ -8,7 +8,6 @@ import { VirtualCorridor } from './VirtualCorridor';
 import { AlumniStats } from './AlumniStats';
 import { AlumniGiving } from './AlumniGiving';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
-import { getTeacherSession } from '../../../utils/auth';
 import { uploadPrincipalEditedImageToCloud } from '../../../utils/cloudImageStorage';
 import { HOME_IMAGE_EDIT_MODE_KEY } from '../../../utils/homeImageSlots';
 import {
@@ -50,9 +49,8 @@ export const Alumni: React.FC = () => {
     setRegistrationQr(readAlumniImageSlots().registrationQr);
     setHasLoadedSlots(true);
 
-    const isPrincipal = getTeacherSession()?.position === 'Principal';
     const toggleEnabled = localStorage.getItem(HOME_IMAGE_EDIT_MODE_KEY) === 'true';
-    setIsImageEditMode(isPrincipal && toggleEnabled);
+    setIsImageEditMode(toggleEnabled);
   }, []);
 
   React.useEffect(() => {

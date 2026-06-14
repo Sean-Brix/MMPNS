@@ -7,36 +7,30 @@ import {
   Download, Users, BarChart3, Home, MoreHorizontal, ArrowLeft
 } from 'lucide-react';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
-import {
-  authenticateStudentOnline,
-  saveStudentSession,
-  getStudentSession,
-  clearStudentSession,
-} from '../../../utils/auth';
+import { loginWithCredentials, getStoredSession, logout } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
 
 export const StudentPortal: React.FC = () => {
   const goTo = useAppNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [studentId, setStudentId] = useState('');
+  const [studentCode, setStudentCode] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [activeSection, setActiveSection] = useState<string>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [studentInfo, setStudentInfo] = useState<{ displayName: string; initials: string; gradeLevel: string; section: string } | null>(null);
+  const [studentInfo, setStudentInfo] = useState<{ displayName: string; initials: string; gradeLevel?: string } | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   useEffect(() => {
     void initializeDatabase();
-    const session = getStudentSession();
-    if (session) {
+    const session = getStoredSession();
+    if (session?.role === 'student') {
       setIsAuthenticated(true);
       setStudentInfo({
         displayName: session.displayName,
-        initials: session.initials,
+        initials: session.initials || '',
         gradeLevel: session.gradeLevel,
-        section: session.section,
       });
     }
   }, []);
@@ -51,29 +45,26 @@ export const StudentPortal: React.FC = () => {
     setIsSigningIn(true);
     setError('');
 
-    const result = await authenticateStudentOnline(studentId, password);
-    if (result.success && result.student) {
-      saveStudentSession(result.student, result.token);
+    const result = await loginWithCredentials(studentCode, password);
+    if (result.success && result.user && result.role === 'student') {
       setIsAuthenticated(true);
       setStudentInfo({
-        displayName: result.student.displayName,
-        initials: result.student.initials,
-        gradeLevel: result.student.gradeLevel,
-        section: result.student.section,
+        displayName: result.user.displayName,
+        initials: result.user.initials,
       });
       setError('');
     } else {
-      setError(result.error || 'Invalid Student ID or password. Please try again.');
+      setError(result.error || 'Invalid access code or password. Please try again.');
     }
 
     setIsSigningIn(false);
   };
 
   const handleLogout = () => {
-    clearStudentSession();
+    void logout();
     setIsAuthenticated(false);
     setStudentInfo(null);
-    setStudentId('');
+    setStudentCode('');
     setPassword('');
     setActiveSection('dashboard');
     setIsSigningIn(false);
@@ -133,14 +124,15 @@ export const StudentPortal: React.FC = () => {
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-[#185C20]/70 mb-2 uppercase tracking-wider">Student ID</label>
+                <label className="block text-xs font-bold text-[#185C20]/70 mb-2 uppercase tracking-wider">Student Access Code</label>
                 <input
                   type="text"
-                  value={studentId}
-                  onChange={(e) => setStudentId(e.target.value)}
+                  value={studentCode}
+                  onChange={(e) => setStudentCode(e.target.value.toUpperCase())}
                   disabled={isSigningIn}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
-                  placeholder="Enter your student ID"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20 font-mono tracking-widest"
+                  placeholder="e.g. A4X7KM9P"
+                  maxLength={8}
                   required
                 />
               </div>
@@ -1036,7 +1028,7 @@ export const StudentPortal: React.FC = () => {
               </div>
               <div className="overflow-hidden">
                 <p className="text-sm font-bold whitespace-nowrap">{studentInfo?.displayName || 'Student'}</p>
-                <p className="text-xs text-white/50 whitespace-nowrap">{studentInfo?.gradeLevel || ''} - {studentInfo?.section || ''}</p>
+                <p className="text-xs text-white/50 whitespace-nowrap">{studentInfo?.gradeLevel || 'Student'}</p>
               </div>
             </div>
             <div className="mt-2 flex items-center gap-2 px-2">
@@ -1109,7 +1101,7 @@ export const StudentPortal: React.FC = () => {
                   <h2 className="font-bold text-base text-[#185C20] truncate">
                     {studentInfo?.displayName || 'Student'}
                   </h2>
-                  <p className="text-[10px] text-[#185C20]/50">{studentInfo?.gradeLevel || ''} - {studentInfo?.section || ''}</p>
+                  <p className="text-[10px] text-[#185C20]/50">{studentInfo?.gradeLevel || 'Student'}</p>
                 </div>
               </div>
               {/* Desktop header */}
@@ -1118,7 +1110,7 @@ export const StudentPortal: React.FC = () => {
                   {sidebarItems.find(m => m.id === activeSection)?.label || 'Dashboard'}
                 </h2>
                 <p className="text-sm text-[#185C20]/50 mt-1">
-                  {studentInfo?.displayName || 'Student'} &bull; {studentInfo?.gradeLevel || ''} - {studentInfo?.section || ''}
+                  {studentInfo?.displayName || 'Student'} &bull; {studentInfo?.gradeLevel || 'Student'}
                 </p>
               </div>
             </div>

@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, redirect } from 'react-router';
 import { PageRouteSkeleton } from './components/ui/page-route-skeleton';
 import { RootLayout } from './pages/RootLayout';
 
@@ -48,9 +48,7 @@ const Contact = withRouteSkeleton(
 const Dashboard = withRouteSkeleton(
   lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard }))),
 );
-const Developer = withRouteSkeleton(
-  lazy(() => import('./pages/Developer').then((module) => ({ default: module.Developer }))),
-);
+
 const FacultyStaff = withRouteSkeleton(
   lazy(() => import('./pages/FacultyStaff').then((module) => ({ default: module.FacultyStaff }))),
 );
@@ -59,6 +57,21 @@ const TeacherPortal = withRouteSkeleton(
 );
 const StudentPortal = withRouteSkeleton(
   lazy(() => import('./pages/Portal/StudentPortal').then((module) => ({ default: module.StudentPortal }))),
+);
+const PrincipalPortal = withRouteSkeleton(
+  lazy(() => import('./pages/Portal/PrincipalPortal').then((module) => ({ default: module.PrincipalPortal }))),
+);
+const LibrarianPortal = withRouteSkeleton(
+  lazy(() => import('./pages/Portal/LibrarianPortal').then((module) => ({ default: module.LibrarianPortal }))),
+);
+const RegistrarPortal = withRouteSkeleton(
+  lazy(() => import('./pages/Portal/RegistrarPortal').then((module) => ({ default: module.RegistrarPortal }))),
+);
+const AdminPortal = withRouteSkeleton(
+  lazy(() => import('./pages/Portal/AdminPortal').then((module) => ({ default: module.AdminPortal }))),
+);
+const SuperadminPortal = withRouteSkeleton(
+  lazy(() => import('./pages/Portal/SuperadminPortal').then((module) => ({ default: module.SuperadminPortal }))),
 );
 const DownloadableForms = withRouteSkeleton(
   lazy(() => import('./pages/Portal/DownloadableForms').then((module) => ({ default: module.DownloadableForms }))),
@@ -82,9 +95,17 @@ export const router = createBrowserRouter([
       { path: 'contact', Component: Contact },
       { path: 'teacher-portal', Component: TeacherPortal },
       { path: 'student-portal', Component: StudentPortal },
+      { path: 'principal-portal', Component: PrincipalPortal },
+      { path: 'librarian-portal', Component: LibrarianPortal },
+      { path: 'registrar-portal', Component: RegistrarPortal },
+      { path: 'admin-portal', Component: AdminPortal },
       { path: 'downloadable-forms', Component: DownloadableForms },
       { path: '*', Component: Home },
     ],
+  },
+  {
+    path: '/superadmin',
+    Component: SuperadminPortal,
   },
   {
     path: '/admin',
@@ -92,6 +113,6 @@ export const router = createBrowserRouter([
   },
   {
     path: '/developer',
-    Component: Developer,
+    loader: () => redirect('/superadmin'),
   },
 ]);
