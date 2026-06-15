@@ -279,6 +279,62 @@ const resetUserPassword = async (uid, newPassword) => {
   await firestore.collection(USERS_COLLECTION).doc(uid).update({passwordHash});
 };
 
+const deleteUser = async (uid) => {
+  const user = await getUserByUid(uid);
+  if (!user) {
+    const {notFound} = require("../httpError");
+    throw notFound("User not found.");
+  }
+  await firestore.collection(USERS_COLLECTION).doc(uid).delete();
+};
+
+const updateUserProfile = async (uid, fields) => {
+  const current = await getUserByUid(uid);
+  if (!current) {
+    const {notFound} = require("../httpError");
+    throw notFound("User not found.");
+  }
+
+  const SAFE_FIELDS = [
+    "firstName", "middleName", "lastName", "extension",
+    "lrn", "noOfSiblings", "monthlyFamilyIncome", "province", "city",
+    "email", "contactNumber", "department",
+  ];
+
+  const update = {};
+  for (const key of SAFE_FIELDS) {
+    if (key in fields) update[key] = fields[key];
+  }
+
+  // Always rebuild displayName when any profile field changes
+  const merged = {...current, ...update};
+  update.displayName = buildDisplayName(current.role, merged);
+  update.initials = buildInitials(update.displayName);
+
+  if (fields.password) {
+    update.passwordHash = await hashPassword(fields.password);
+  }
+
+  await firestore.collection(USERS_COLLECTION).doc(uid).update(update);
+  return stripSensitiveFields({...current, ...update});
+};
+
+const getStudentBySystemId = async (systemId) => {
+  // Single equality filter — no composite index needed
+  const snapshot = await firestore
+      .collection(USERS_COLLECTION)
+      .where("systemId", "==", systemId)
+      .limit(1)
+      .get();
+  if (snapshot.empty) return null;
+  const data = snapshot.docs[0].data();
+  return data.role === "student" ? data : null;
+};
+
+const updateStudentPhoto = async (uid, photoUrl) => {
+  await firestore.collection(USERS_COLLECTION).doc(uid).update({photoUrl});
+};
+
 const updateLastLogin = async (uid) => {
   await firestore
       .collection(USERS_COLLECTION)
@@ -292,9 +348,13 @@ module.exports = {
   checkPassword,
   getUserByUsername,
   getUserByUid,
+  getStudentBySystemId,
   createUser,
   listUsers,
+  deleteUser,
   updateUserStatus,
+  updateUserProfile,
+  updateStudentPhoto,
   resetUserPassword,
   updateLastLogin,
   stripSensitiveFields,

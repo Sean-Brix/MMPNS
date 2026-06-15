@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router';
 import { initializeDatabase, resetDatabase, type DatabaseTable } from '../../../utils/database';
 import { FacultyManager } from '../Dashboard/FacultyManager';
 import { AlumniManager } from '../Dashboard/AlumniManager';
+import { QrKiosk } from '../../components/developer/QrKiosk';
 
 // ─── Menu items ───────────────────────────────────────────────────────────────
 
@@ -31,6 +32,7 @@ const SUPERADMIN_MENU: SidebarItem[] = [
   { id: 'alumni',     label: 'Alumni',             icon: GraduationCap },
   { id: 'news',       label: 'News & Pages',       icon: Newspaper },
   { id: 'developer',  label: 'Developer Tools',    icon: Terminal },
+  { id: 'kiosk',      label: 'QR Kiosk',           icon: Wrench },
   { id: 'database',   label: 'Database',           icon: Database },
   { id: 'settings',   label: 'System Settings',    icon: Settings },
 ];
@@ -194,6 +196,7 @@ export const AdminPortal: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [kioskOpen, setKioskOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -252,22 +255,44 @@ export const AdminPortal: React.FC = () => {
       case 'settings':  return <PlaceholderSection title="School Settings" icon={Settings} />;
       // superadmin-only
       case 'developer': return isSuperadmin ? <DeveloperTools /> : <PlaceholderSection title="Developer Tools" icon={Terminal} />;
+      case 'kiosk':     return isSuperadmin ? (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
+              <Wrench className="w-4 h-4 text-blue-600" />
+              QR Attendance Kiosk
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Opens a full-screen kiosk that accepts input from a QR scanner. Scans a student's system ID and displays their profile.
+            </p>
+            <button
+              onClick={() => setKioskOpen(true)}
+              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+            >
+              Launch Kiosk
+            </button>
+          </div>
+        </div>
+      ) : null;
       case 'database':  return isSuperadmin ? <PlaceholderSection title="Database Management" icon={Database} /> : null;
       default:          return isSuperadmin ? <SuperadminOverview user={user} /> : <AdminOverview user={user} />;
     }
   };
 
   return (
-    <PortalLayout
-      user={user}
-      role={user.role as any}
-      menuItems={menuItems}
-      activeSection={activeSection}
-      onSectionChange={setActiveSection}
-      onLogout={handleLogout}
-      portalName="Administrator Portal"
-    >
-      {renderSection()}
-    </PortalLayout>
+    <>
+      <PortalLayout
+        user={user}
+        role={user.role as any}
+        menuItems={menuItems}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        onLogout={handleLogout}
+        portalName="Administrator Portal"
+      >
+        {renderSection()}
+      </PortalLayout>
+      {kioskOpen && <QrKiosk onClose={() => setKioskOpen(false)} />}
+    </>
   );
 };

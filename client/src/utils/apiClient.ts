@@ -68,6 +68,16 @@ export const resetAccountPassword = (uid: string, password: string) =>
     body: JSON.stringify({ password }),
   });
 
+export const deleteAccount = (uid: string) =>
+  apiFetch<{ success: boolean }>(`/accounts/${uid}`, { method: 'DELETE' });
+
+export const updateAccountProfile = (uid: string, data: Record<string, any>) =>
+  apiFetch<{ success: boolean; user: any }>(`/accounts/${uid}/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
 // ─── Table API (kept for existing features) ───────────────────────────────────
 
 export const getApiTable = async <T = any>(table: string): Promise<T | null> => {
@@ -138,6 +148,21 @@ export const uploadPrincipalImage = async (options: {
     body: formData,
   });
 
+  return result.url;
+};
+
+// ─── Kiosk / Student Scan ─────────────────────────────────────────────────────
+
+export const scanStudentBySystemId = (systemId: string) =>
+  apiFetch<{ student: any }>(`/accounts/scan/${encodeURIComponent(systemId)}`);
+
+export const uploadStudentPhoto = async (uid: string, file: File): Promise<string> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const result = await apiFetch<{ url: string }>(`/storage/student-photos/${uid}`, {
+    method: 'POST',
+    body: formData,
+  });
   return result.url;
 };
 

@@ -3,8 +3,12 @@ const {requireAuth} = require("../services/sessionService");
 const {
   createUser,
   listUsers,
+  deleteUser,
   updateUserStatus,
+  updateUserProfile,
   resetUserPassword,
+  getStudentBySystemId,
+  stripSensitiveFields,
   NON_SUPERADMIN_ROLES,
 } = require("../services/userService");
 const {badRequest, forbidden} = require("../httpError");
@@ -81,6 +85,48 @@ router.post("/:uid/reset-password", requireAuth(ACCOUNT_MANAGER_ROLES), async (r
 
     await resetUserPassword(uid, password);
     res.json({success: true});
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/accounts/:uid — delete account
+router.delete("/:uid", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
+  try {
+    await deleteUser(req.params.uid);
+    res.json({success: true});
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/accounts/:uid/profile — update editable profile fields
+router.patch("/:uid/profile", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
+  try {
+    const user = await updateUserProfile(req.params.uid, req.body);
+    res.json({success: true, user});
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/accounts/scan/:systemId — kiosk lookup by student system ID
+const SYSTEM_ID_PATTERN = /^\d{2}0\d{2}0\d{2}0\d{2}0\d{2}0\d{2}$/;
+
+router.get("/scan/:systemId", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
+  try {
+    const {systemId} = req.params;
+
+    if (!SYSTEM_ID_PATTERN.test(systemId)) {
+      return res.status(400).json({error: "Invalid QR code format. Expected 17-digit pattern."});
+    }
+
+    const student = await getStudentBySystemId(systemId);
+    if (!student) {
+      return res.status(404).json({error: "Student not found."});
+    }
+
+    res.json({student: stripSensitiveFields(student)});
   } catch (error) {
     next(error);
   }

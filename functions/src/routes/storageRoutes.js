@@ -5,7 +5,9 @@ const {requireAuth} = require("../services/sessionService");
 const {
   getObjectDownloadUrl,
   uploadPrincipalImage,
+  uploadStudentPhoto,
 } = require("../services/storageService");
+const {updateStudentPhoto} = require("../services/userService");
 
 // eslint-disable-next-line new-cap
 const router = express.Router();
@@ -74,6 +76,27 @@ router.post(
           slot: fields.slot,
         });
 
+        res.status(201).json(result);
+      } catch (error) {
+        next(error);
+      }
+    });
+
+router.post(
+    "/student-photos/:uid",
+    requireAuth(["superadmin", "admin", "registrar"]),
+    async (req, res, next) => {
+      try {
+        const {uid} = req.params;
+        if (!uid) throw badRequest("Student UID is required.");
+        const {file} = await parseMultipartUpload(req);
+        const result = await uploadStudentPhoto({
+          uid,
+          buffer: file && file.buffer,
+          contentType: file && file.contentType,
+          filename: file && file.filename,
+        });
+        await updateStudentPhoto(uid, result.url);
         res.status(201).json(result);
       } catch (error) {
         next(error);

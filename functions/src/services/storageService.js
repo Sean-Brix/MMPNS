@@ -120,7 +120,36 @@ const uploadPrincipalImage = async ({
   };
 };
 
+const uploadStudentPhoto = async ({uid, buffer, contentType, filename}) => {
+  if (!buffer || !Buffer.isBuffer(buffer)) {
+    throw badRequest("Image file is required.");
+  }
+  if (buffer.length > MAX_IMAGE_SIZE) {
+    throw badRequest("Image file must be 10MB or smaller.");
+  }
+  if (!contentType || !contentType.startsWith("image/")) {
+    throw badRequest("Only image uploads are supported.");
+  }
+
+  const bucket = getStorageBucket();
+  const extension = path.extname(filename || "").replace(".", "").toLowerCase() || "jpg";
+  const token = crypto.randomUUID();
+  const objectPath = `student-photos/${sanitizePathPart(uid)}/photo.${extension}`;
+  const file = bucket.file(objectPath);
+
+  await file.save(buffer, {
+    resumable: false,
+    metadata: {
+      contentType,
+      metadata: {firebaseStorageDownloadTokens: token, source: "mmpns-functions-api"},
+    },
+  });
+
+  return {path: objectPath, url: createDownloadUrl(bucket.name, objectPath, token)};
+};
+
 module.exports = {
   getObjectDownloadUrl,
   uploadPrincipalImage,
+  uploadStudentPhoto,
 };
