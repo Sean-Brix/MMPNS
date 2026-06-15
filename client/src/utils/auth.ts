@@ -1,16 +1,9 @@
 // Unified authentication utilities for all 7 portal roles.
 // Uses JWT stored in localStorage — no Firebase Authentication SDK required.
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+import type { UserRole } from './roles';
 
-export type UserRole =
-  | 'teacher'
-  | 'student'
-  | 'superadmin'
-  | 'librarian'
-  | 'registrar'
-  | 'principal'
-  | 'admin';
+export type { UserRole } from './roles';
 
 export interface UserProfile {
   uid?: string;
@@ -37,6 +30,9 @@ export interface UserProfile {
   noOfSiblings?: number;
   monthlyFamilyIncome?: number;
   province?: string;
+  city?: string;
+  gradeLevel?: string;
+  section?: string;
 }
 
 export interface LoginResult {
@@ -91,6 +87,7 @@ export const loginWithCredentials = async (
       loginTime: new Date().toISOString(),
       initials: data.user?.initials || '',
       department: data.user?.department,
+      gradeLevel: data.user?.gradeLevel,
     };
 
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));

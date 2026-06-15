@@ -3,6 +3,7 @@ const express = require("express");
 const {HttpError} = require("./httpError");
 const {authRoutes} = require("./routes/authRoutes");
 const {accountRoutes} = require("./routes/accountRoutes");
+const {attendanceRoutes} = require("./routes/attendanceRoutes");
 const {storageRoutes} = require("./routes/storageRoutes");
 const {tableRoutes} = require("./routes/tableRoutes");
 
@@ -23,6 +24,7 @@ router.get("/health", (_req, res) => {
 
 router.use("/auth", authRoutes);
 router.use("/accounts", accountRoutes);
+router.use("/attendance", attendanceRoutes);
 router.use("/tables", tableRoutes);
 router.use("/storage", storageRoutes);
 

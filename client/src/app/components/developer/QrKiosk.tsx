@@ -1,21 +1,22 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ScanLine, X, CheckCircle2, AlertCircle, Wifi } from 'lucide-react';
-import { scanStudentBySystemId } from '../../../utils/apiClient';
+import { ScanLine, X, CheckCircle2, AlertCircle, Wifi, MapPin, Hash, Calendar, Clock3 } from 'lucide-react';
+import {
+  recordAttendanceScan,
+  type AttendanceRecord,
+} from '../../../utils/apiClient';
 
 // ─── Validation ───────────────────────────────────────────────────────────────
-// Format: DD0DD0DD0DD0DD0DD (17 chars — 6 digit-pairs joined by "0")
 const SYSTEM_ID_PATTERN = /^\d{2}0\d{2}0\d{2}0\d{2}0\d{2}0\d{2}$/;
 
-const validateSystemId = (raw: string): { valid: boolean; reason?: string } => {
+const validateSystemId = (raw: string) => {
   const s = raw.trim();
-  if (s.length !== 17) return { valid: false, reason: `Expected 17 characters, got ${s.length}.` };
-  if (!SYSTEM_ID_PATTERN.test(s)) return { valid: false, reason: 'Pattern mismatch — expected zeros at positions 3, 6, 9, 12, 15.' };
-  return { valid: true };
+  if (s.length !== 17) return { valid: false, reason: `Expected 17 digits, got ${s.length}.` };
+  if (!SYSTEM_ID_PATTERN.test(s)) return { valid: false, reason: 'Format mismatch — check QR code.' };
+  return { valid: true, reason: undefined };
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
 interface KioskStudent {
   uid: string;
   displayName: string;
@@ -27,115 +28,225 @@ interface KioskStudent {
   photoUrl?: string;
   status?: string;
   createdAt?: string;
-  studentCode?: string;
+  gradeLevel?: string;
+  section?: string;
 }
 
-type KioskState = 'idle' | 'loading' | 'found' | 'not_found' | 'invalid';
+type KioskState = 'welcome' | 'loading' | 'found' | 'not_found' | 'invalid';
 
-// ─── Result Display ───────────────────────────────────────────────────────────
+// ─── Sub-views ────────────────────────────────────────────────────────────────
 
-const StudentCard: React.FC<{ student: KioskStudent }> = ({ student }) => (
+const WelcomeView: React.FC = () => (
   <motion.div
-    initial={{ opacity: 0, scale: 0.92 }}
-    animate={{ opacity: 1, scale: 1 }}
-    transition={{ type: 'spring', duration: 0.45, bounce: 0.2 }}
-    className="flex flex-col items-center gap-6"
+    key="welcome"
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0, scale: 0.96 }}
+    transition={{ duration: 0.3 }}
+    className="flex flex-col items-center justify-center gap-10 w-full h-full text-center px-8"
   >
-    {/* Photo */}
-    <div className="w-36 h-36 rounded-2xl overflow-hidden border-4 border-green-400/60 shadow-xl">
-      {student.photoUrl ? (
-        <img src={student.photoUrl} alt={student.displayName} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full bg-white/10 flex items-center justify-center">
-          <span className="text-5xl font-black text-white/60">
-            {(student.firstName?.[0] ?? '') + (student.lastName?.[0] ?? '')}
-          </span>
-        </div>
-      )}
+    {/* School branding */}
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-20 h-20 rounded-2xl bg-[#EDCD1F] flex items-center justify-center shadow-2xl shadow-yellow-400/20">
+        <span className="text-[#185C20] font-black text-4xl">M</span>
+      </div>
+      <div>
+        <p className="text-white/80 text-xl font-semibold tracking-wide">Madre Maria Pia Notari School</p>
+        <p className="text-white/30 text-sm mt-1 tracking-widest uppercase">Student Attendance System</p>
+      </div>
     </div>
 
-    {/* Status badge */}
-    <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-green-500/20 border border-green-400/40">
-      <CheckCircle2 className="w-4 h-4 text-green-400" />
-      <span className="text-green-300 text-sm font-semibold">Student Found</span>
-    </div>
-
-    {/* Name */}
-    <div className="text-center">
-      <p className="text-3xl font-bold text-white">{student.displayName}</p>
-      {student.status && (
-        <span className={`text-sm font-medium mt-1 inline-block ${student.status === 'active' ? 'text-green-400' : 'text-red-400'}`}>
-          {student.status === 'active' ? 'Active' : 'Inactive'}
-        </span>
-      )}
-    </div>
-
-    {/* Details grid */}
-    <div className="grid grid-cols-2 gap-3 w-full max-w-md">
+    {/* Scan icon */}
+    <motion.div
+      animate={{ opacity: [0.4, 1, 0.4], scale: [0.97, 1.03, 0.97] }}
+      transition={{ repeat: Infinity, duration: 2.8, ease: 'easeInOut' }}
+      className="relative w-52 h-52 flex items-center justify-center"
+    >
+      {/* Corner brackets */}
       {[
-        { label: 'LRN', value: student.lrn ?? '—' },
-        { label: 'Registered', value: student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—' },
-        { label: 'Province', value: student.province ?? '—' },
-        { label: 'City / Municipality', value: student.city ?? '—' },
-      ].map(({ label, value }) => (
-        <div key={label} className="bg-white/10 rounded-xl p-3 border border-white/10">
-          <p className="text-xs text-white/50 uppercase tracking-wider mb-1">{label}</p>
-          <p className="text-sm font-semibold text-white">{value}</p>
-        </div>
+        'top-0 left-0 border-t-4 border-l-4 rounded-tl-2xl',
+        'top-0 right-0 border-t-4 border-r-4 rounded-tr-2xl',
+        'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-2xl',
+        'bottom-0 right-0 border-b-4 border-r-4 rounded-br-2xl',
+      ].map((cls, i) => (
+        <span key={i} className={`absolute w-10 h-10 border-white/50 ${cls}`} />
       ))}
+      <ScanLine className="w-24 h-24 text-white/40" />
+    </motion.div>
+
+    {/* Instruction */}
+    <div className="space-y-3">
+      <p className="text-white font-black tracking-tight" style={{ fontSize: 'clamp(2.5rem, 6vw, 5rem)' }}>
+        SCAN YOUR STUDENT ID
+      </p>
+      <p className="text-white/40 text-xl">
+        Hold the QR code in front of the scanner
+      </p>
     </div>
   </motion.div>
 );
 
-// ─── Main Kiosk Component ─────────────────────────────────────────────────────
+const LoadingView: React.FC = () => (
+  <motion.div
+    key="loading"
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="flex flex-col items-center gap-6"
+  >
+    <div className="w-20 h-20 rounded-full border-4 border-white/10 border-t-white/80 animate-spin" />
+    <p className="text-white/50 text-xl">Verifying student...</p>
+  </motion.div>
+);
 
-export const QrKiosk: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [kioskState, setKioskState] = useState<KioskState>('idle');
+const FoundView: React.FC<{
+  student: KioskStudent;
+  attendance: AttendanceRecord;
+  isFirstScan: boolean;
+}> = ({ student, attendance, isFirstScan }) => {
+  const initials = (student.firstName?.[0] ?? '') + (student.lastName?.[0] ?? '');
+  const regDate = student.createdAt
+    ? new Date(student.createdAt).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
+    : '—';
+
+  return (
+    <motion.div
+      key="found"
+      initial={{ opacity: 0, x: -30 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 30 }}
+      transition={{ type: 'spring', duration: 0.4, bounce: 0.1 }}
+      className="flex items-center gap-16 w-full h-full px-16"
+    >
+      {/* Photo — left side */}
+      <div className="flex-shrink-0 flex flex-col items-center gap-6">
+        <div
+          className="rounded-3xl overflow-hidden border-4 border-green-400/60 shadow-2xl shadow-green-500/20"
+          style={{ width: 'clamp(180px, 22vw, 320px)', height: 'clamp(180px, 22vw, 320px)' }}
+        >
+          {student.photoUrl ? (
+            <img src={student.photoUrl} alt={student.displayName} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-white/10 flex items-center justify-center">
+              <span className="font-black text-white/30" style={{ fontSize: 'clamp(3rem, 8vw, 7rem)' }}>
+                {initials}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Status badge */}
+        <div className={`flex items-center gap-2.5 px-6 py-2.5 rounded-full border font-semibold text-lg ${
+          student.status === 'active'
+            ? 'bg-green-500/15 border-green-400/30 text-green-300'
+            : 'bg-red-500/15 border-red-400/30 text-red-300'
+        }`}>
+          <CheckCircle2 size={20} />
+          {student.status === 'active' ? 'Active Student' : 'Inactive'}
+        </div>
+      </div>
+
+      {/* Info — right side */}
+      <div className="flex-1 flex flex-col gap-8 min-w-0">
+        {/* Name */}
+        <div>
+          <p className="text-white/40 uppercase tracking-widest text-sm mb-2">Student</p>
+          <p className="text-white font-black leading-tight break-words"
+            style={{ fontSize: 'clamp(2rem, 4.5vw, 4rem)' }}>
+            {student.displayName}
+          </p>
+          <p className="text-white/40 text-lg mt-2">
+            {[student.gradeLevel, student.section].filter(Boolean).join(' - ') || 'Grade and section not assigned'}
+          </p>
+        </div>
+
+        {/* Detail cards */}
+        <div className="grid grid-cols-2 gap-4">
+          {[
+            { icon: Hash, label: 'LRN', value: student.lrn ?? '—' },
+            { icon: Calendar, label: 'Registered', value: regDate },
+            { icon: MapPin, label: 'Province', value: student.province ?? '—' },
+            { icon: MapPin, label: 'City / Municipality', value: student.city ?? '—' },
+          ].map(({ icon: Icon, label, value }) => (
+            <div key={label} className="bg-white/6 border border-white/8 rounded-2xl p-5">
+              <div className="flex items-center gap-2 text-white/30 mb-2">
+                <Icon size={14} />
+                <p className="text-xs uppercase tracking-widest">{label}</p>
+              </div>
+              <p className="text-white font-bold text-xl truncate">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-4 rounded-2xl border border-green-400/20 bg-green-400/10 p-5">
+          <div className="w-12 h-12 rounded-full bg-green-400/15 flex items-center justify-center">
+            <Clock3 className="w-6 h-6 text-green-300" />
+          </div>
+          <div>
+            <p className="text-green-200 font-semibold">
+              {isFirstScan ? 'Attendance recorded' : 'Attendance scan updated'}
+            </p>
+            <p className="text-green-100/50 text-sm mt-0.5">
+              {new Date(attendance.lastScanAt).toLocaleTimeString('en-PH', {
+                timeZone: 'Asia/Manila',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+              {attendance.scanCount > 1 ? ` - scan ${attendance.scanCount}` : ''}
+            </p>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+const ErrorView: React.FC<{ type: 'not_found' | 'invalid'; message: string }> = ({ type, message }) => (
+  <motion.div
+    key="error"
+    initial={{ opacity: 0, scale: 0.9 }}
+    animate={{ opacity: 1, scale: 1 }}
+    exit={{ opacity: 0 }}
+    transition={{ type: 'spring', duration: 0.35, bounce: 0.15 }}
+    className="flex flex-col items-center gap-8 text-center px-8"
+  >
+    <div className="w-36 h-36 rounded-full bg-red-500/10 border-2 border-red-400/30 flex items-center justify-center">
+      <AlertCircle className="w-16 h-16 text-red-400" />
+    </div>
+    <div className="space-y-3">
+      <p className="text-white font-black" style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)' }}>
+        {type === 'not_found' ? 'Student Not Found' : 'Invalid QR Code'}
+      </p>
+      <p className="text-white/40 text-xl max-w-lg">{message}</p>
+    </div>
+    <p className="text-white/20 text-lg animate-pulse">Scan next student ID...</p>
+  </motion.div>
+);
+
+// ─── Main Kiosk ───────────────────────────────────────────────────────────────
+
+export const QrKiosk: React.FC<{
+  onClose: () => void;
+  onRecorded?: () => void;
+}> = ({ onClose, onRecorded }) => {
+  const [kioskState, setKioskState] = useState<KioskState>('welcome');
   const [inputValue, setInputValue] = useState('');
   const [student, setStudent] = useState<KioskStudent | null>(null);
+  const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
+  const [isFirstScan, setIsFirstScan] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [countdown, setCountdown] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanIdRef = useRef(0);
 
-  const focusInput = useCallback(() => {
-    inputRef.current?.focus();
+  // Always keep focus on the hidden input
+  useEffect(() => {
+    const focus = () => inputRef.current?.focus();
+    focus();
+    const id = setInterval(focus, 1000);
+    return () => clearInterval(id);
   }, []);
 
-  // Keep input focused
-  useEffect(() => {
-    focusInput();
-    const interval = setInterval(focusInput, 2000);
-    return () => clearInterval(interval);
-  }, [focusInput]);
-
-  const reset = useCallback(() => {
-    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-    setKioskState('idle');
-    setInputValue('');
-    setStudent(null);
-    setErrorMsg('');
-    setCountdown(0);
-    setTimeout(focusInput, 50);
-  }, [focusInput]);
-
-  // Auto-reset after 5 seconds — no button click needed
-  useEffect(() => {
-    if (kioskState === 'found' || kioskState === 'not_found' || kioskState === 'invalid') {
-      setCountdown(5);
-      const tick = setInterval(() => {
-        setCountdown((c) => {
-          if (c <= 1) { clearInterval(tick); return 0; }
-          return c - 1;
-        });
-      }, 1000);
-      resetTimerRef.current = setTimeout(reset, 5000);
-      return () => { clearInterval(tick); if (resetTimerRef.current) clearTimeout(resetTimerRef.current); };
-    }
-  }, [kioskState, reset]);
-
   const handleScan = useCallback(async (raw: string) => {
-    // Strip whitespace, carriage returns, and any non-digit characters at edges
     const trimmed = raw.replace(/[\r\n\t\s]/g, '').trim();
     if (!trimmed) return;
 
@@ -146,145 +257,113 @@ export const QrKiosk: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       return;
     }
 
+    // Track scan generation — if a newer scan arrives, discard this result
+    const thisScan = ++scanIdRef.current;
     setKioskState('loading');
+
     try {
-      const res = await scanStudentBySystemId(trimmed);
+      const res = await recordAttendanceScan(trimmed);
+      if (thisScan !== scanIdRef.current) return;
       setStudent(res.student);
+      setAttendance(res.attendance);
+      setIsFirstScan(res.isFirstScan);
       setKioskState('found');
+      onRecorded?.();
     } catch (err: any) {
+      if (thisScan !== scanIdRef.current) return;
       if (err?.status === 404) {
         setErrorMsg('No student found with this QR code.');
         setKioskState('not_found');
       } else {
-        setErrorMsg('System error. Please try again.');
+        setErrorMsg('Connection error. Try again.');
         setKioskState('invalid');
       }
     }
-  }, []);
+  }, [onRecorded]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && kioskState === 'idle') {
+    if (e.key === 'Enter') {
       e.preventDefault();
-      void handleScan(inputValue);
+      const val = inputValue;
+      setInputValue('');
+      void handleScan(val);
     }
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0a0f1e] flex flex-col"
-      onClick={focusInput}
+      className="fixed inset-0 z-50 flex flex-col select-none"
+      style={{ background: '#07091a' }}
+      onClick={() => inputRef.current?.focus()}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#EDCD1F] flex items-center justify-center">
-            <span className="text-[#185C20] font-black text-sm">M</span>
+      {/* ── Top bar ── */}
+      <div className="flex-shrink-0 flex items-center justify-between px-8 py-5 border-b border-white/8">
+        <div className="flex items-center gap-4">
+          <div className="w-11 h-11 rounded-xl bg-[#EDCD1F] flex items-center justify-center shadow-lg">
+            <span className="text-[#185C20] font-black text-xl">M</span>
           </div>
           <div>
-            <p className="text-white font-semibold text-sm">MMPNS Attendance Kiosk</p>
-            <p className="text-white/40 text-xs">QR Scanner Mode</p>
+            <p className="text-white font-bold text-base leading-tight">MMPNS Attendance Kiosk</p>
+            <p className="text-white/30 text-xs tracking-wide">Scan student ID to record attendance</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/20 text-white/60 hover:text-white hover:border-white/40 text-sm transition-colors"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/15 text-white/50 hover:text-white hover:border-white/30 text-sm transition-colors"
         >
-          <X size={14} />
+          <X size={15} />
           Exit Kiosk
         </button>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-8 gap-8">
+      {/* ── Main content — fills all remaining space ── */}
+      <div className="flex-1 relative overflow-hidden">
         <AnimatePresence mode="wait">
-          {kioskState === 'idle' && (
-            <motion.div
-              key="idle"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              className="flex flex-col items-center gap-6 text-center"
-            >
-              <motion.div
-                animate={{ scale: [1, 1.04, 1] }}
-                transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
-                className="w-24 h-24 rounded-3xl bg-white/5 border-2 border-white/20 flex items-center justify-center"
-              >
-                <ScanLine className="w-12 h-12 text-white/60" />
-              </motion.div>
-              <div>
-                <p className="text-3xl font-bold text-white">Ready to Scan</p>
-                <p className="text-white/50 mt-2">Point the QR scanner at a student ID card</p>
-              </div>
-            </motion.div>
+          {kioskState === 'welcome' && <div className="absolute inset-0 flex items-center justify-center"><WelcomeView /></div>}
+          {kioskState === 'loading' && <div className="absolute inset-0 flex items-center justify-center"><LoadingView /></div>}
+          {kioskState === 'found' && student && attendance && (
+            <div className="absolute inset-0 flex items-center">
+              <FoundView student={student} attendance={attendance} isFirstScan={isFirstScan} />
+            </div>
           )}
-
-          {kioskState === 'loading' && (
-            <motion.div
-              key="loading"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center gap-4"
-            >
-              <div className="w-16 h-16 rounded-full border-4 border-white/20 border-t-white animate-spin" />
-              <p className="text-white/60">Looking up student...</p>
-            </motion.div>
-          )}
-
-          {kioskState === 'found' && student && (
-            <motion.div key="found" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <StudentCard student={student} />
-            </motion.div>
-          )}
-
           {(kioskState === 'not_found' || kioskState === 'invalid') && (
-            <motion.div
-              key="error"
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center gap-4 text-center"
-            >
-              <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center">
-                <AlertCircle className="w-10 h-10 text-red-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">
-                  {kioskState === 'not_found' ? 'Student Not Found' : 'Invalid QR Code'}
-                </p>
-                <p className="text-white/50 mt-2 max-w-sm">{errorMsg}</p>
-              </div>
-            </motion.div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <ErrorView type={kioskState as 'not_found' | 'invalid'} message={errorMsg} />
+            </div>
           )}
         </AnimatePresence>
-
-        {/* Hidden scanner input */}
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={(e) => {
-            if (kioskState === 'idle') setInputValue(e.target.value);
-          }}
-          onKeyDown={handleKeyDown}
-          className="opacity-0 absolute w-0 h-0 pointer-events-none"
-          autoFocus
-          tabIndex={0}
-        />
       </div>
 
-      {/* Footer */}
-      <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-white/30 text-xs">
-          <Wifi size={12} />
-          <span>Scanner input active</span>
+      {/* ── Bottom bar ── */}
+      <div className="flex-shrink-0 flex items-center justify-between px-8 py-4 border-t border-white/8">
+        <div className="flex items-center gap-2.5 text-white/25 text-sm">
+          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+          <Wifi size={13} />
+          <span>Scanner active — scan anytime</span>
         </div>
-
-        {(kioskState === 'found' || kioskState === 'not_found' || kioskState === 'invalid') && (
-          <span className="text-white/40 text-sm">Ready to scan next in {countdown}s...</span>
+        {kioskState !== 'welcome' && kioskState !== 'loading' && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-white/20 text-sm"
+          >
+            Scan next student ID at any time
+          </motion.p>
         )}
       </div>
+
+      {/* Hidden input — always capturing scanner wedge input */}
+      <input
+        ref={inputRef}
+        type="text"
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        className="fixed opacity-0 pointer-events-none w-px h-px"
+        autoFocus
+        tabIndex={0}
+        aria-hidden="true"
+      />
     </div>
   );
 };

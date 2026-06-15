@@ -1,27 +1,14 @@
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const {admin, firestore} = require("../firebaseAdmin");
+const {firestore} = require("../firebaseAdmin");
+const {
+  VALID_ROLES,
+  NON_SUPERADMIN_ROLES,
+  getAllowedProfileFields,
+  pickRoleProfileFields,
+} = require("./rolePolicy");
 
 const USERS_COLLECTION = "users";
-
-const VALID_ROLES = [
-  "teacher",
-  "student",
-  "superadmin",
-  "librarian",
-  "registrar",
-  "principal",
-  "admin",
-];
-
-const NON_SUPERADMIN_ROLES = [
-  "teacher",
-  "student",
-  "principal",
-  "librarian",
-  "registrar",
-  "admin",
-];
 
 // ─── Password Hashing ──────────────────────────────────────────────────────────
 
@@ -184,6 +171,14 @@ const validateCreatePayload = (role, fields) => {
     errors.push("Department is required for teachers.");
   }
 
+  if (role === "student" && !fields.gradeLevel) {
+    errors.push("Grade level is required for students.");
+  }
+
+  if (role === "student" && !fields.section) {
+    errors.push("Section is required for students.");
+  }
+
   return errors;
 };
 
@@ -218,7 +213,8 @@ const createUser = async ({role, username, password, createdBy, ...profileFields
   }
 
   const uid = generateUUID();
-  const displayName = buildDisplayName(role, {...profileFields, username: finalUsername});
+  const sanitizedProfile = pickRoleProfileFields(role, profileFields);
+  const displayName = buildDisplayName(role, {...sanitizedProfile, username: finalUsername});
   const initials = buildInitials(displayName);
   const passwordHash = await hashPassword(password);
 
@@ -234,7 +230,7 @@ const createUser = async ({role, username, password, createdBy, ...profileFields
     displayName,
     initials,
     passwordHash,
-    ...profileFields,
+    ...sanitizedProfile,
   };
 
   if (role === "student") {
@@ -295,14 +291,10 @@ const updateUserProfile = async (uid, fields) => {
     throw notFound("User not found.");
   }
 
-  const SAFE_FIELDS = [
-    "firstName", "middleName", "lastName", "extension",
-    "lrn", "noOfSiblings", "monthlyFamilyIncome", "province", "city",
-    "email", "contactNumber", "department",
-  ];
+  const safeFields = getAllowedProfileFields(current.role);
 
   const update = {};
-  for (const key of SAFE_FIELDS) {
+  for (const key of safeFields) {
     if (key in fields) update[key] = fields[key];
   }
 

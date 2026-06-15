@@ -9,14 +9,17 @@ const {
   resetUserPassword,
   getStudentBySystemId,
   stripSensitiveFields,
-  NON_SUPERADMIN_ROLES,
 } = require("../services/userService");
+const {
+  ACCOUNT_MANAGER_ROLES,
+  ATTENDANCE_MANAGER_ROLES,
+  NON_SUPERADMIN_ROLES,
+} = require("../services/rolePolicy");
 const {badRequest, forbidden} = require("../httpError");
 
 // eslint-disable-next-line new-cap
 const router = express.Router();
 
-const ACCOUNT_MANAGER_ROLES = ["superadmin", "admin", "registrar"];
 const ALL_ROLES = [...NON_SUPERADMIN_ROLES, "superadmin"];
 
 // GET /api/accounts — list all users
@@ -113,7 +116,7 @@ router.patch("/:uid/profile", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, re
 // GET /api/accounts/scan/:systemId — kiosk lookup by student system ID
 const SYSTEM_ID_PATTERN = /^\d{2}0\d{2}0\d{2}0\d{2}0\d{2}0\d{2}$/;
 
-router.get("/scan/:systemId", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
+router.get("/scan/:systemId", requireAuth(ATTENDANCE_MANAGER_ROLES), async (req, res, next) => {
   try {
     const {systemId} = req.params;
 

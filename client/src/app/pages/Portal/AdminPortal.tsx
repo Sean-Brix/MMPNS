@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, ShieldCheck, Settings,
   Users, Activity, Newspaper, GraduationCap,
@@ -7,12 +7,17 @@ import {
 import { PortalLogin } from '../../components/portal/PortalLogin';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { AccountManagement } from '../../components/AccountManagement';
-import { getStoredSession, logout, type UserProfile, type UserRole } from '../../../utils/auth';
+import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
 import { useNavigate } from 'react-router';
 import { initializeDatabase, resetDatabase, type DatabaseTable } from '../../../utils/database';
 import { FacultyManager } from '../Dashboard/FacultyManager';
 import { AlumniManager } from '../Dashboard/AlumniManager';
-import { QrKiosk } from '../../components/developer/QrKiosk';
+import { SecurityCenter } from '../../components/security/SecurityCenter';
+import {
+  ADMINISTRATION_ROLES,
+  ROLE_PORTAL_ROUTES,
+  isAdministrationRole,
+} from '../../../utils/roles';
 
 // ─── Menu items ───────────────────────────────────────────────────────────────
 
@@ -22,6 +27,7 @@ const ADMIN_MENU: SidebarItem[] = [
   { id: 'faculty',   label: 'Faculty & Staff',    icon: Users },
   { id: 'alumni',    label: 'Alumni',             icon: GraduationCap },
   { id: 'news',      label: 'News & Pages',       icon: Newspaper },
+  { id: 'security',  label: 'Security & Attendance', icon: ShieldCheck },
   { id: 'settings',  label: 'School Settings',    icon: Settings },
 ];
 
@@ -31,10 +37,14 @@ const SUPERADMIN_MENU: SidebarItem[] = [
   { id: 'faculty',    label: 'Faculty & Staff',    icon: Users },
   { id: 'alumni',     label: 'Alumni',             icon: GraduationCap },
   { id: 'news',       label: 'News & Pages',       icon: Newspaper },
+  { id: 'security',   label: 'Security & Attendance', icon: ShieldCheck },
   { id: 'developer',  label: 'Developer Tools',    icon: Terminal },
-  { id: 'kiosk',      label: 'QR Kiosk',           icon: Wrench },
   { id: 'database',   label: 'Database',           icon: Database },
   { id: 'settings',   label: 'System Settings',    icon: Settings },
+];
+
+const SECURITY_MENU: SidebarItem[] = [
+  { id: 'security', label: 'Security & Attendance', icon: ShieldCheck },
 ];
 
 // ─── Dashboards ───────────────────────────────────────────────────────────────
@@ -182,28 +192,33 @@ const PlaceholderSection: React.FC<{ title: string; icon: React.ComponentType<{ 
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const ALLOWED_ROLES = ['admin', 'superadmin'];
-
-const ROLE_PORTAL_MAP: Record<string, string> = {
-  teacher: '/teacher-portal',
-  student: '/student-portal',
-  principal: '/principal-portal',
-  librarian: '/librarian-portal',
-  registrar: '/registrar-portal',
-};
-
 export const AdminPortal: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeSection, setActiveSection] = useState('dashboard');
-  const [kioskOpen, setKioskOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     void initializeDatabase();
     const session = getStoredSession();
-    if (session && ALLOWED_ROLES.includes(session.role)) {
+    if (!session) {
+      return;
+    }
+
+    if (!isAdministrationRole(session.role)) {
+      void navigate(ROLE_PORTAL_ROUTES[session.role], { replace: true });
+      return;
+    }
+
+    const roleRoute = ROLE_PORTAL_ROUTES[session.role];
+    if (roleRoute !== '/admin-portal') {
+      void navigate(roleRoute, { replace: true });
+      return;
+    }
+
+    if (session) {
       setIsAuthenticated(true);
+      setActiveSection(session.role === 'security' ? 'security' : 'dashboard');
       setUser({
         role: session.role,
         username: session.username,
@@ -213,7 +228,7 @@ export const AdminPortal: React.FC = () => {
         lastLogin: null,
       });
     }
-  }, []);
+  }, [navigate]);
 
   const handleLogout = async () => {
     await logout();
@@ -224,17 +239,18 @@ export const AdminPortal: React.FC = () => {
   if (!isAuthenticated || !user) {
     return (
       <PortalLogin
-        portalName="Administrator Portal"
+        portalName="Administration Portal"
         portalDescription="Administration, management & developer access"
+        allowedRoles={ADMINISTRATION_ROLES}
         onSuccess={(result) => {
           if (!result.user || !result.role) return;
-          if (ALLOWED_ROLES.includes(result.role)) {
+          const destination = ROLE_PORTAL_ROUTES[result.role];
+          if (destination !== '/admin-portal') {
+            void navigate(destination, { replace: true });
+          } else {
             setUser(result.user);
             setIsAuthenticated(true);
-          } else {
-            // Redirect other roles to their own portal
-            const dest = ROLE_PORTAL_MAP[result.role as UserRole] || '/';
-            void navigate(dest);
+            setActiveSection(result.role === 'security' ? 'security' : 'dashboard');
           }
         }}
         accentColor="#1e293b"
@@ -243,56 +259,38 @@ export const AdminPortal: React.FC = () => {
   }
 
   const isSuperadmin = user.role === 'superadmin';
-  const menuItems = isSuperadmin ? SUPERADMIN_MENU : ADMIN_MENU;
+  const isSecurity = user.role === 'security';
+  const menuItems = isSecurity ? SECURITY_MENU : isSuperadmin ? SUPERADMIN_MENU : ADMIN_MENU;
   const callerRole = isSuperadmin ? 'superadmin' : 'admin';
 
   const renderSection = () => {
     switch (activeSection) {
-      case 'accounts':  return <AccountManagement callerRole={callerRole} />;
+      case 'accounts':  return isSecurity ? null : <AccountManagement callerRole={callerRole} />;
       case 'faculty':   return <FacultyManager />;
       case 'alumni':    return <AlumniManager />;
       case 'news':      return <PlaceholderSection title="News & Pages" icon={Newspaper} />;
+      case 'security':  return <SecurityCenter />;
       case 'settings':  return <PlaceholderSection title="School Settings" icon={Settings} />;
       // superadmin-only
       case 'developer': return isSuperadmin ? <DeveloperTools /> : <PlaceholderSection title="Developer Tools" icon={Terminal} />;
-      case 'kiosk':     return isSuperadmin ? (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
-              <Wrench className="w-4 h-4 text-blue-600" />
-              QR Attendance Kiosk
-            </h3>
-            <p className="text-xs text-gray-500 mb-4">
-              Opens a full-screen kiosk that accepts input from a QR scanner. Scans a student's system ID and displays their profile.
-            </p>
-            <button
-              onClick={() => setKioskOpen(true)}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-            >
-              Launch Kiosk
-            </button>
-          </div>
-        </div>
-      ) : null;
       case 'database':  return isSuperadmin ? <PlaceholderSection title="Database Management" icon={Database} /> : null;
-      default:          return isSuperadmin ? <SuperadminOverview user={user} /> : <AdminOverview user={user} />;
+      default:
+        if (isSecurity) return <SecurityCenter />;
+        return isSuperadmin ? <SuperadminOverview user={user} /> : <AdminOverview user={user} />;
     }
   };
 
   return (
-    <>
-      <PortalLayout
-        user={user}
-        role={user.role as any}
-        menuItems={menuItems}
-        activeSection={activeSection}
-        onSectionChange={setActiveSection}
-        onLogout={handleLogout}
-        portalName="Administrator Portal"
-      >
-        {renderSection()}
-      </PortalLayout>
-      {kioskOpen && <QrKiosk onClose={() => setKioskOpen(false)} />}
-    </>
+    <PortalLayout
+      user={user}
+      role={user.role}
+      menuItems={menuItems}
+      activeSection={activeSection}
+      onSectionChange={setActiveSection}
+      onLogout={handleLogout}
+      portalName={isSecurity ? 'Security Administration' : 'Administration Portal'}
+    >
+      {renderSection()}
+    </PortalLayout>
   );
 };

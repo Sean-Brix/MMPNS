@@ -16,7 +16,7 @@ interface AccountManagementProps {
 const ROLE_LABELS: Record<string, string> = {
   teacher: 'Teacher', student: 'Student', principal: 'Principal',
   librarian: 'Librarian', registrar: 'Registrar', admin: 'System Admin',
-  superadmin: 'Superadmin',
+  security: 'Security', superadmin: 'Superadmin',
 };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -25,6 +25,7 @@ const ROLE_COLORS: Record<string, string> = {
   principal:  'bg-green-100 text-green-800',
   librarian:  'bg-amber-100 text-amber-800',
   registrar:  'bg-purple-100 text-purple-800',
+  security:   'bg-cyan-100 text-cyan-900',
   admin:      'bg-slate-100 text-slate-800',
   superadmin: 'bg-rose-100 text-rose-800',
 };

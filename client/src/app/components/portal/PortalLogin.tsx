@@ -8,6 +8,7 @@ import {
   type LoginResult,
   type ActiveSessionInfo,
 } from '../../../utils/auth';
+import { ROLE_LABELS } from '../../../utils/roles';
 
 interface PortalLoginProps {
   portalName: string;
@@ -17,16 +18,6 @@ interface PortalLoginProps {
   accentColor?: string;
   allowedRoles?: string[];
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  teacher: 'Teacher',
-  principal: 'Principal',
-  student: 'Student',
-  librarian: 'Librarian',
-  registrar: 'Registrar',
-  admin: 'System Admin',
-  superadmin: 'Superadmin',
-};
 
 export const PortalLogin: React.FC<PortalLoginProps> = ({
   portalName,
@@ -62,6 +53,7 @@ export const PortalLogin: React.FC<PortalLoginProps> = ({
 
     if (result.success) {
       if (allowedRoles && result.role && !allowedRoles.includes(result.role)) {
+        await logout();
         setError(`This account does not have access to the ${portalName}.`);
       } else {
         onSuccess(result);

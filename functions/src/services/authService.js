@@ -6,19 +6,10 @@ const {
   stripSensitiveFields,
   ensureBootstrapSuperAdmin,
 } = require("./userService");
+const {ROLE_PORTAL_ROUTES} = require("./rolePolicy");
 
 const JWT_SECRET = process.env.JWT_SECRET || "mmpns-jwt-secret-dev";
 const JWT_EXPIRES = "7d";
-
-const ROLE_PORTAL_ROUTES = {
-  teacher: "/teacher-portal",
-  student: "/student-portal",
-  principal: "/principal-portal",
-  librarian: "/librarian-portal",
-  registrar: "/registrar-portal",
-  admin: "/admin-portal",
-  superadmin: "/admin-portal",
-};
 
 const authenticateAccount = async (body) => {
   const {username, password} = body || {};

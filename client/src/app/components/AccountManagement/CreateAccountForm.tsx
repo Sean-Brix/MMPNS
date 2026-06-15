@@ -22,6 +22,7 @@ const CREATABLE_ROLES_BY_CALLER: Record<string, { value: UserRole; label: string
     { value: 'principal', label: 'Principal' },
     { value: 'librarian', label: 'Librarian' },
     { value: 'registrar', label: 'Registrar' },
+    { value: 'security',  label: 'Security' },
   ],
   superadmin: [
     { value: 'teacher',    label: 'Teacher' },
@@ -29,6 +30,7 @@ const CREATABLE_ROLES_BY_CALLER: Record<string, { value: UserRole; label: string
     { value: 'principal',  label: 'Principal' },
     { value: 'librarian',  label: 'Librarian' },
     { value: 'registrar',  label: 'Registrar' },
+    { value: 'security',   label: 'Security' },
     { value: 'admin',      label: 'System Admin' },
     { value: 'superadmin', label: 'Superadmin' },
   ],
@@ -53,6 +55,7 @@ export const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
     firstName: '', middleName: '', lastName: '', extension: '',
     email: '', username: '', password: '', contactNumber: '',
     department: '', noOfSiblings: '', monthlyFamilyIncome: '', province: '', lrn: '',
+    gradeLevel: '', section: '',
   });
 
   const roles = CREATABLE_ROLES_BY_CALLER[callerRole] || [];
@@ -75,7 +78,7 @@ export const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
         payload.password = form.password;
       }
 
-      if (['teacher', 'principal', 'librarian', 'registrar', 'admin'].includes(selectedRole)) {
+      if (['teacher', 'principal', 'librarian', 'registrar', 'security', 'admin'].includes(selectedRole)) {
         payload.firstName = form.firstName.trim();
         if (form.middleName.trim()) payload.middleName = form.middleName.trim();
         payload.lastName = form.lastName.trim();
@@ -93,6 +96,8 @@ export const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
         payload.noOfSiblings = Number(form.noOfSiblings) || 0;
         payload.monthlyFamilyIncome = Number(form.monthlyFamilyIncome) || 0;
         payload.province = form.province.trim();
+        payload.gradeLevel = form.gradeLevel.trim();
+        payload.section = form.section.trim();
       }
 
       if (selectedRole === 'superadmin') {
@@ -132,7 +137,7 @@ export const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
             Close
           </button>
           <button
-            onClick={() => { setSuccess(null); setForm({ firstName: '', middleName: '', lastName: '', extension: '', email: '', username: '', password: '', contactNumber: '', department: '', noOfSiblings: '', monthlyFamilyIncome: '', province: '', lrn: '' }); setSelectedRole(''); }}
+            onClick={() => { setSuccess(null); setForm({ firstName: '', middleName: '', lastName: '', extension: '', email: '', username: '', password: '', contactNumber: '', department: '', noOfSiblings: '', monthlyFamilyIncome: '', province: '', lrn: '', gradeLevel: '', section: '' }); setSelectedRole(''); }}
             className="px-4 py-2 rounded-lg bg-[#185C20] text-white text-sm hover:bg-[#145218]"
           >
             Create Another
@@ -191,6 +196,16 @@ export const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
                 <div>
                   <label className={labelClass}>LRN *</label>
                   <input value={form.lrn} onChange={set('lrn')} className={inputClass} placeholder="12-digit LRN" required maxLength={12} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Grade Level *</label>
+                  <input value={form.gradeLevel} onChange={set('gradeLevel')} className={inputClass} placeholder="e.g. Grade 7" required />
+                </div>
+                <div>
+                  <label className={labelClass}>Section *</label>
+                  <input value={form.section} onChange={set('section')} className={inputClass} placeholder="e.g. St. Anne" required />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">

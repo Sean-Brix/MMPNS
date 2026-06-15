@@ -45,10 +45,6 @@ const AlumniGallery = withRouteSkeleton(
 const Contact = withRouteSkeleton(
   lazy(() => import('./pages/Contact').then((module) => ({ default: module.Contact }))),
 );
-const Dashboard = withRouteSkeleton(
-  lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard }))),
-);
-
 const FacultyStaff = withRouteSkeleton(
   lazy(() => import('./pages/FacultyStaff').then((module) => ({ default: module.FacultyStaff }))),
 );
@@ -106,10 +102,10 @@ export const router = createBrowserRouter([
   },
   {
     path: '/admin',
-    Component: Dashboard,
+    loader: () => redirect('/admin-portal'),
   },
   {
     path: '/developer',
-    loader: () => redirect('/superadmin'),
+    loader: () => redirect('/admin-portal'),
   },
 ]);

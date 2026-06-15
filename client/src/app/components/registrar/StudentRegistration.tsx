@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   UserPlus, X, Search, Users, QrCode, Download,
-  RefreshCw, CheckCircle2, Camera, Pencil, Trash2, AlertTriangle,
+  RefreshCw, CheckCircle2, Camera, Pencil, Trash2, AlertTriangle, FileDown,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
@@ -10,6 +10,10 @@ import {
   getAccounts, createAccount, deleteAccount,
   updateAccountProfile, uploadStudentPhoto,
 } from '../../../utils/apiClient';
+import {
+  downloadStudentCodeDocument,
+  type StudentCodeType,
+} from '../../../utils/studentCodeDocument';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +35,8 @@ interface StudentRecord {
   createdAt?: string;
   status?: string;
   photoUrl?: string;
+  gradeLevel?: string;
+  section?: string;
 }
 
 // ─── Modal Shell ──────────────────────────────────────────────────────────────
@@ -282,7 +288,19 @@ const StudentFormFields: React.FC<{
     {/* Academic */}
     <section>
       <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Academic Info</p>
-      <div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Grade Level *</label>
+          <input value={form.gradeLevel} onChange={set('gradeLevel')} className={inputClass}
+            placeholder="e.g. Grade 7" required />
+        </div>
+        <div>
+          <label className={labelClass}>Section *</label>
+          <input value={form.section} onChange={set('section')} className={inputClass}
+            placeholder="e.g. St. Anne" required />
+        </div>
+      </div>
+      <div className="mt-3">
         <label className={labelClass}>LRN (Learner Reference Number) *</label>
         <input value={form.lrn} onChange={set('lrn')} className={`${inputClass} font-mono`}
           placeholder="12-digit LRN" maxLength={12} required />
@@ -351,6 +369,7 @@ const StudentFormFields: React.FC<{
 const BLANK_FORM = {
   firstName: '', middleName: '', lastName: '', extension: '',
   noOfSiblings: '', monthlyFamilyIncome: '', province: '', city: '', lrn: '', password: '',
+  gradeLevel: '', section: '',
 };
 
 const RegisterForm: React.FC<{
@@ -377,6 +396,7 @@ const RegisterForm: React.FC<{
         role: 'student',
         firstName: form.firstName.trim(), lastName: form.lastName.trim(),
         password: form.password, lrn: form.lrn.trim(),
+        gradeLevel: form.gradeLevel.trim(), section: form.section.trim(),
         noOfSiblings: Number(form.noOfSiblings) || 0,
         monthlyFamilyIncome: Number(form.monthlyFamilyIncome) || 0,
         province: form.province.trim(), city: form.city.trim(),
@@ -471,6 +491,8 @@ const EditForm: React.FC<{
     province: student.province ?? '',
     city: student.city ?? '',
     lrn: student.lrn ?? '',
+    gradeLevel: student.gradeLevel ?? '',
+    section: student.section ?? '',
     password: '',
   });
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -491,6 +513,7 @@ const EditForm: React.FC<{
         firstName: form.firstName.trim(), middleName: form.middleName.trim(),
         lastName: form.lastName.trim(), extension: form.extension.trim(),
         lrn: form.lrn.trim(),
+        gradeLevel: form.gradeLevel.trim(), section: form.section.trim(),
         noOfSiblings: Number(form.noOfSiblings) || 0,
         monthlyFamilyIncome: Number(form.monthlyFamilyIncome) || 0,
         province: form.province.trim(), city: form.city.trim(),
@@ -548,6 +571,11 @@ export const StudentRegistration: React.FC = () => {
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [sectionFilter, setSectionFilter] = useState('');
+  const [exportType, setExportType] = useState<StudentCodeType>('qr');
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [showRegister, setShowRegister] = useState(false);
   const [codeStudent, setCodeStudent] = useState<StudentRecord | null>(null);
   const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
@@ -567,16 +595,47 @@ export const StudentRegistration: React.FC = () => {
 
   useEffect(() => { void loadStudents(); }, [loadStudents]);
 
+  const gradeLevels = Array.from(new Set(students.map((student) => student.gradeLevel).filter(Boolean) as string[]))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sections = Array.from(new Set(
+    students
+      .filter((student) => !gradeFilter || student.gradeLevel === gradeFilter)
+      .map((student) => student.section)
+      .filter(Boolean) as string[],
+  )).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
   const filtered = students.filter((s) => {
+    if (gradeFilter && s.gradeLevel !== gradeFilter) return false;
+    if (sectionFilter && s.section !== sectionFilter) return false;
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
       s.displayName?.toLowerCase().includes(q) ||
       s.lrn?.includes(q) ||
+      s.gradeLevel?.toLowerCase().includes(q) ||
+      s.section?.toLowerCase().includes(q) ||
       s.province?.toLowerCase().includes(q) ||
       s.city?.toLowerCase().includes(q)
     );
   });
+
+  const handleMassExport = async () => {
+    if (isExporting) return;
+    setExportError('');
+    setIsExporting(true);
+    try {
+      await downloadStudentCodeDocument({
+        students: filtered,
+        codeType: exportType,
+        gradeLevel: gradeFilter || undefined,
+        section: sectionFilter || undefined,
+      });
+    } catch (err: any) {
+      setExportError(err?.message || 'The DOCX file could not be generated.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleDeleted = async () => {
     if (!deleteStudent) return;
@@ -601,13 +660,71 @@ export const StudentRegistration: React.FC = () => {
         </button>
       </div>
 
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-gray-900">Mass Export ID Codes</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Creates a compact Word document with each student's name beside the selected code.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3 flex-[2]">
+            <div>
+              <label className={labelClass}>Grade Level</label>
+              <select
+                value={gradeFilter}
+                onChange={(event) => {
+                  setGradeFilter(event.target.value);
+                  setSectionFilter('');
+                }}
+                className={inputClass}
+              >
+                <option value="">All grade levels</option>
+                {gradeLevels.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Section</label>
+              <select
+                value={sectionFilter}
+                onChange={(event) => setSectionFilter(event.target.value)}
+                className={inputClass}
+              >
+                <option value="">All sections</option>
+                {sections.map((section) => <option key={section} value={section}>{section}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Code Format</label>
+              <select
+                value={exportType}
+                onChange={(event) => setExportType(event.target.value as StudentCodeType)}
+                className={inputClass}
+              >
+                <option value="qr">QR Code</option>
+                <option value="barcode">Code 128 Barcode</option>
+              </select>
+            </div>
+          </div>
+          <button
+            onClick={handleMassExport}
+            disabled={isExporting || filtered.length === 0}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-50"
+          >
+            <FileDown size={15} />
+            {isExporting ? 'Generating DOCX...' : `Export ${filtered.length} to DOCX`}
+          </button>
+        </div>
+        {exportError && <p className="mt-3 text-sm text-red-600">{exportError}</p>}
+      </div>
+
       {/* List */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex gap-3 items-center">
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search name, LRN, province, city…"
+              placeholder="Search name, LRN, grade level, section..."
               className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" />
           </div>
           <button onClick={loadStudents} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Refresh">
@@ -630,8 +747,8 @@ export const StudentRegistration: React.FC = () => {
                 <tr className="bg-gray-50 border-b border-gray-100">
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Name</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">LRN</th>
-                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Province</th>
-                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">City</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Grade Level</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Section</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Registered</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Code</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Actions</th>
@@ -657,10 +774,10 @@ export const StudentRegistration: React.FC = () => {
                       <span className="font-mono text-xs text-gray-600">{s.lrn ?? '—'}</span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      <span className="text-sm text-gray-600">{s.province ?? '—'}</span>
+                      <span className="text-sm text-gray-600">{s.gradeLevel ?? '—'}</span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      <span className="text-sm text-gray-600">{s.city ?? '—'}</span>
+                      <span className="text-sm text-gray-600">{s.section ?? '—'}</span>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
                       <span className="text-xs text-gray-400">

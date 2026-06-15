@@ -3,12 +3,12 @@ import {
   LayoutDashboard, UserPlus, Users, ShieldCheck,
   FileText, BarChart3, ClipboardList,
 } from 'lucide-react';
-import { PortalLogin } from '../../components/portal/PortalLogin';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { AccountManagement } from '../../components/AccountManagement';
 import { StudentRegistration } from '../../components/registrar/StudentRegistration';
 import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
+import { useNavigate } from 'react-router';
 
 const MENU_ITEMS: SidebarItem[] = [
   { id: 'dashboard',    label: 'Dashboard',           icon: LayoutDashboard },
@@ -59,6 +59,7 @@ export const RegistrarPortal: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeSection, setActiveSection] = useState('dashboard');
+  const navigate = useNavigate();
 
   useEffect(() => {
     void initializeDatabase();
@@ -73,30 +74,20 @@ export const RegistrarPortal: React.FC = () => {
         status: 'active',
         lastLogin: null,
       });
+    } else {
+      void navigate('/admin-portal', { replace: true });
     }
-  }, []);
+  }, [navigate]);
 
   const handleLogout = async () => {
     await logout();
     setIsAuthenticated(false);
     setUser(null);
+    void navigate('/admin-portal', { replace: true });
   };
 
   if (!isAuthenticated || !user) {
-    return (
-      <PortalLogin
-        portalName="Registrar Portal"
-        portalDescription="Student registrations and account management"
-        allowedRoles={['registrar']}
-        onSuccess={(result) => {
-          if (result.user && result.role === 'registrar') {
-            setUser(result.user);
-            setIsAuthenticated(true);
-          }
-        }}
-        accentColor="#581c87"
-      />
-    );
+    return null;
   }
 
   const renderSection = () => {

@@ -166,6 +166,40 @@ export const uploadStudentPhoto = async (uid: string, file: File): Promise<strin
   return result.url;
 };
 
+export interface AttendanceRecord {
+  id: string;
+  date: string;
+  studentUid: string;
+  systemId: string;
+  displayName: string;
+  gradeLevel?: string;
+  section?: string;
+  status: 'present';
+  firstScanAt: string;
+  lastScanAt: string;
+  scanCount: number;
+}
+
+export interface AttendanceSummary {
+  date: string;
+  totalStudents: number;
+  present: number;
+  absent: number;
+  attendanceRate: number;
+  byGrade: Record<string, number>;
+  records: AttendanceRecord[];
+}
+
+export const recordAttendanceScan = (systemId: string) =>
+  apiFetch<{ student: any; attendance: AttendanceRecord; isFirstScan: boolean }>('/attendance/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ systemId }),
+  });
+
+export const getAttendanceSummary = (date?: string) =>
+  apiFetch<AttendanceSummary>(`/attendance/summary${date ? `?date=${encodeURIComponent(date)}` : ''}`);
+
 // ─── Legacy helpers (kept for compatibility with existing features) ────────────
 
 export const hasDeveloperAdminSession = (): boolean => isAdminRole();

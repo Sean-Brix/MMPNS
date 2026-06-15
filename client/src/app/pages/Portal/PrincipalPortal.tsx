@@ -3,7 +3,6 @@ import {
   LayoutDashboard, Users, GraduationCap, BookOpen,
   Calendar, ClipboardList, Settings2, Star,
 } from 'lucide-react';
-import { PortalLogin } from '../../components/portal/PortalLogin';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { PrincipalSubjects } from '../../components/principal/PrincipalSubjects';
 import { PrincipalEvaluation } from '../../components/principal/PrincipalEvaluation';
@@ -13,6 +12,7 @@ import { PrincipalTeachers } from '../../components/principal/PrincipalTeachers'
 import { PrincipalYearSetup } from '../../components/principal/PrincipalYearSetup';
 import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
+import { useNavigate } from 'react-router';
 
 const MENU_ITEMS: SidebarItem[] = [
   { id: 'dashboard',   label: 'Dashboard',          icon: LayoutDashboard },
@@ -66,6 +66,7 @@ export const PrincipalPortal: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeSection, setActiveSection] = useState('dashboard');
+  const navigate = useNavigate();
 
   useEffect(() => {
     void initializeDatabase();
@@ -80,30 +81,20 @@ export const PrincipalPortal: React.FC = () => {
         status: 'active',
         lastLogin: null,
       });
+    } else {
+      void navigate('/admin-portal', { replace: true });
     }
-  }, []);
+  }, [navigate]);
 
   const handleLogout = async () => {
     await logout();
     setIsAuthenticated(false);
     setUser(null);
+    void navigate('/admin-portal', { replace: true });
   };
 
   if (!isAuthenticated || !user) {
-    return (
-      <PortalLogin
-        portalName="Principal Portal"
-        portalDescription="School administration and management"
-        allowedRoles={['principal']}
-        onSuccess={(result) => {
-          if (result.user && result.role === 'principal') {
-            setUser(result.user);
-            setIsAuthenticated(true);
-          }
-        }}
-        accentColor="#185C20"
-      />
-    );
+    return null;
   }
 
   const renderSection = () => {

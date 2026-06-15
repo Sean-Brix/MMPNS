@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LogOut, Menu, X, ChevronRight } from 'lucide-react';
 import type { UserProfile, UserRole } from '../../../utils/auth';
+import { ROLE_LABELS } from '../../../utils/roles';
 
 export interface SidebarItem {
   id: string;
@@ -26,18 +27,9 @@ const ROLE_COLORS: Record<string, { bg: string; text: string; badge: string }> =
   student:    { bg: 'bg-blue-800',   text: 'text-white',  badge: 'bg-blue-600' },
   librarian:  { bg: 'bg-amber-800',  text: 'text-white',  badge: 'bg-amber-600' },
   registrar:  { bg: 'bg-purple-800', text: 'text-white',  badge: 'bg-purple-600' },
+  security:   { bg: 'bg-cyan-950',   text: 'text-white',  badge: 'bg-cyan-700' },
   admin:      { bg: 'bg-slate-800',  text: 'text-white',  badge: 'bg-slate-600' },
   superadmin: { bg: 'bg-rose-900',   text: 'text-white',  badge: 'bg-rose-700' },
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  teacher:    'Teacher',
-  principal:  'Principal',
-  student:    'Student',
-  librarian:  'Librarian',
-  registrar:  'Registrar',
-  admin:      'System Admin',
-  superadmin: 'Superadmin',
 };
 
 export const PortalLayout: React.FC<PortalLayoutProps> = ({

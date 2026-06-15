@@ -4,9 +4,9 @@ import {
   Clock, Search, BarChart3, AlertCircle, CheckCircle2,
   BookCopy, Users, TrendingUp,
 } from 'lucide-react';
-import { PortalLogin } from '../../components/portal/PortalLogin';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
+import { useNavigate } from 'react-router';
 
 const MENU_ITEMS: SidebarItem[] = [
   { id: 'dashboard',  label: 'Dashboard',     icon: LayoutDashboard },
@@ -91,6 +91,7 @@ export const LibrarianPortal: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeSection, setActiveSection] = useState('dashboard');
+  const navigate = useNavigate();
 
   useEffect(() => {
     const session = getStoredSession();
@@ -104,30 +105,20 @@ export const LibrarianPortal: React.FC = () => {
         status: 'active',
         lastLogin: null,
       });
+    } else {
+      void navigate('/admin-portal', { replace: true });
     }
-  }, []);
+  }, [navigate]);
 
   const handleLogout = async () => {
     await logout();
     setIsAuthenticated(false);
     setUser(null);
+    void navigate('/admin-portal', { replace: true });
   };
 
   if (!isAuthenticated || !user) {
-    return (
-      <PortalLogin
-        portalName="Library Portal"
-        portalDescription="Book management and circulation"
-        allowedRoles={['librarian']}
-        onSuccess={(result) => {
-          if (result.user && result.role === 'librarian') {
-            setUser(result.user);
-            setIsAuthenticated(true);
-          }
-        }}
-        accentColor="#92400e"
-      />
-    );
+    return null;
   }
 
   const renderSection = () => {
