@@ -1,13 +1,15 @@
-const {admin} = require("../firebaseAdmin");
+const jwt = require("jsonwebtoken");
 const {
   getUserByUsername,
-  verifyFirebasePassword,
+  checkPassword,
   updateLastLogin,
   stripSensitiveFields,
   ensureBootstrapSuperAdmin,
 } = require("./userService");
 
-// Role → portal route mapping (sent to client for redirect)
+const JWT_SECRET = process.env.JWT_SECRET || "mmpns-jwt-secret-dev";
+const JWT_EXPIRES = "7d";
+
 const ROLE_PORTAL_ROUTES = {
   teacher: "/teacher-portal",
   student: "/student-portal",
@@ -15,7 +17,7 @@ const ROLE_PORTAL_ROUTES = {
   librarian: "/librarian-portal",
   registrar: "/registrar-portal",
   admin: "/admin-portal",
-  superadmin: "/superadmin",
+  superadmin: "/admin-portal",
 };
 
 const authenticateAccount = async (body) => {
@@ -25,7 +27,6 @@ const authenticateAccount = async (body) => {
     return {success: false, error: "Username and password are required."};
   }
 
-  // Ensure the bootstrap superadmin exists (first-run only)
   await ensureBootstrapSuperAdmin();
 
   const normalizedUsername = String(username).trim().toLowerCase();
@@ -35,23 +36,23 @@ const authenticateAccount = async (body) => {
     return {success: false, error: "Invalid username or password."};
   }
 
-  const passwordValid = await verifyFirebasePassword(normalizedUsername, password);
+  const passwordValid = await checkPassword(password, user.passwordHash);
   if (!passwordValid) {
     return {success: false, error: "Invalid username or password."};
   }
 
-  // Issue Firebase custom token (client will exchange this for an ID token)
-  const customToken = await admin.auth().createCustomToken(user.authUid, {
-    role: user.role,
-    displayName: user.displayName || "",
-  });
+  const token = jwt.sign(
+      {uid: user.uid, role: user.role, username: user.username, displayName: user.displayName || ""},
+      JWT_SECRET,
+      {expiresIn: JWT_EXPIRES},
+  );
 
   await updateLastLogin(user.uid);
 
   return {
     success: true,
     user: stripSensitiveFields(user),
-    customToken,
+    token,
     role: user.role,
     portalRoute: ROLE_PORTAL_ROUTES[user.role] || "/",
   };

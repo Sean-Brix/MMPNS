@@ -1,8 +1,5 @@
 // Unified authentication utilities for all 7 portal roles.
-// Uses Firebase Auth (custom token) + Firebase ID tokens for API calls.
-
-import { signInWithCustomToken, signOut } from 'firebase/auth';
-import { auth } from './firebaseConfig';
+// Uses JWT stored in localStorage — no Firebase Authentication SDK required.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +13,7 @@ export type UserRole =
   | 'admin';
 
 export interface UserProfile {
-  uid?: string;            // UUID (present in some responses, never rendered in UI)
+  uid?: string;
   role: UserRole;
   username: string;
   status: string;
@@ -35,14 +32,11 @@ export interface UserProfile {
 
   // Student
   extension?: string;
-  studentCode?: string;   // login code (never shown publicly)
+  studentCode?: string;
   lrn?: string;
   noOfSiblings?: number;
   monthlyFamilyIncome?: number;
   province?: string;
-
-  // Staff (shared)
-  // firstName / middleName / lastName / email / contactNumber (already above)
 }
 
 export interface LoginResult {
@@ -53,17 +47,17 @@ export interface LoginResult {
   error?: string;
 }
 
-// ─── Session Storage Keys ─────────────────────────────────────────────────────
+// ─── Storage Keys ─────────────────────────────────────────────────────────────
 
 const SESSION_KEY = 'mmpns_session';
 const ROLE_KEY = 'mmpns_user_role';
+const TOKEN_KEY = 'mmpns_token';
 
 interface StoredSession {
   role: UserRole;
   displayName: string;
   username: string;
   loginTime: string;
-  // Additional profile fields for quick access
   department?: string;
   gradeLevel?: string;
   initials?: string;
@@ -84,14 +78,12 @@ export const loginWithCredentials = async (
 
     const data = await res.json();
 
-    if (!data.success || !data.customToken) {
+    if (!data.success || !data.token) {
       return { success: false, error: data.error || 'Login failed. Please try again.' };
     }
 
-    // Establish Firebase Auth session
-    await signInWithCustomToken(auth, data.customToken);
+    localStorage.setItem(TOKEN_KEY, data.token);
 
-    // Store session metadata for quick access
     const session: StoredSession = {
       role: data.role,
       displayName: data.user?.displayName || '',
@@ -131,39 +123,31 @@ export const getCurrentRole = (): UserRole | null => {
   return (role as UserRole) || null;
 };
 
-// Returns true if the caller role can access admin-level features
 export const isAdminRole = (): boolean => {
   const role = getCurrentRole();
   return role === 'admin' || role === 'superadmin';
 };
 
-// Returns true if the caller can manage accounts (registrar, admin, superadmin)
 export const canManageAccounts = (): boolean => {
   const role = getCurrentRole();
   return role === 'registrar' || role === 'admin' || role === 'superadmin';
 };
 
-// ─── Firebase ID Token (for API calls) ───────────────────────────────────────
+// ─── JWT Token (for API calls) ────────────────────────────────────────────────
 
 export const getFirebaseIdToken = async (): Promise<string> => {
-  const user = auth.currentUser;
-  if (!user) return '';
-  try {
-    return await user.getIdToken();
-  } catch {
-    return '';
-  }
+  return localStorage.getItem(TOKEN_KEY) || '';
 };
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
 
 export const logout = async (): Promise<void> => {
-  await signOut(auth);
+  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(ROLE_KEY);
 };
 
-// ─── Cross-Portal Conflict Detection ─────────────────────────────────────────
+// ─── Active Session Info ──────────────────────────────────────────────────────
 
 export interface ActiveSessionInfo {
   displayName: string;
@@ -172,10 +156,10 @@ export interface ActiveSessionInfo {
 }
 
 export const getActiveSessionInfo = (): ActiveSessionInfo | null => {
-  const user = auth.currentUser;
+  const token = localStorage.getItem(TOKEN_KEY);
   const session = getStoredSession();
 
-  if (!user || !session) return null;
+  if (!token || !session) return null;
 
   return {
     displayName: session.displayName,

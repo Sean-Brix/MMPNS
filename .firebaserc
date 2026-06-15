@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "mmpns-9bdde"
-  }
+  },
+  "targets": {
+    "mmpns-9bdde": {
+      "hosting": {
+        "mmpns": [
+          "mmpns-9bdde"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

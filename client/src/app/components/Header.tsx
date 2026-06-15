@@ -20,6 +20,7 @@ const pathToId: Record<string, string> = {
   '/teacher-portal': 'teacher-portal',
   '/student-portal': 'student-portal',
   '/downloadable-forms': 'downloadable-forms',
+  '/admin-portal': 'admin-portal',
 };
 
 interface DropdownItem {
@@ -63,11 +64,12 @@ export const Header: React.FC = () => {
       ]
     },
     { name: 'Admissions', id: 'admissions' },
-    { 
-      name: 'Portal', 
+    {
+      name: 'Portal',
       dropdown: [
         { name: "Teacher's Portal", id: 'teacher-portal', description: 'Faculty dashboard' },
         { name: 'Student Portal', id: 'student-portal', description: 'Student dashboard' },
+        { name: 'Administrator Portal', id: 'admin-portal', description: 'Administration & management' },
         { name: 'Downloadable Forms', id: 'downloadable-forms', description: 'School forms' },
       ]
     },

@@ -6,7 +6,7 @@ import {
 import { PortalLogin } from '../../components/portal/PortalLogin';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { AccountManagement } from '../../components/AccountManagement';
-import { PrincipalRegistration } from '../../components/principal/PrincipalRegistration';
+import { StudentRegistration } from '../../components/registrar/StudentRegistration';
 import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
 
@@ -87,6 +87,7 @@ export const RegistrarPortal: React.FC = () => {
       <PortalLogin
         portalName="Registrar Portal"
         portalDescription="Student registrations and account management"
+        allowedRoles={['registrar']}
         onSuccess={(result) => {
           if (result.user && result.role === 'registrar') {
             setUser(result.user);
@@ -100,7 +101,7 @@ export const RegistrarPortal: React.FC = () => {
 
   const renderSection = () => {
     switch (activeSection) {
-      case 'registrations': return <PrincipalRegistration />;
+      case 'registrations': return <StudentRegistration />;
       case 'accounts':      return <AccountManagement callerRole="registrar" />;
       case 'records':
         return (

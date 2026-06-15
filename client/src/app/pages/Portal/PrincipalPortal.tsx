@@ -94,6 +94,7 @@ export const PrincipalPortal: React.FC = () => {
       <PortalLogin
         portalName="Principal Portal"
         portalDescription="School administration and management"
+        allowedRoles={['principal']}
         onSuccess={(result) => {
           if (result.user && result.role === 'principal') {
             setUser(result.user);

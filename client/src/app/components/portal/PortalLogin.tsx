@@ -15,6 +15,7 @@ interface PortalLoginProps {
   loginFieldLabel?: string;
   onSuccess: (result: LoginResult) => void;
   accentColor?: string;
+  allowedRoles?: string[];
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -33,6 +34,7 @@ export const PortalLogin: React.FC<PortalLoginProps> = ({
   loginFieldLabel = 'Username',
   onSuccess,
   accentColor = '#185C20',
+  allowedRoles,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -59,7 +61,11 @@ export const PortalLogin: React.FC<PortalLoginProps> = ({
     setIsLoading(false);
 
     if (result.success) {
-      onSuccess(result);
+      if (allowedRoles && result.role && !allowedRoles.includes(result.role)) {
+        setError(`This account does not have access to the ${portalName}.`);
+      } else {
+        onSuccess(result);
+      }
     } else {
       setError(result.error || 'Invalid credentials. Please try again.');
     }

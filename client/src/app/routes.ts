@@ -70,9 +70,6 @@ const RegistrarPortal = withRouteSkeleton(
 const AdminPortal = withRouteSkeleton(
   lazy(() => import('./pages/Portal/AdminPortal').then((module) => ({ default: module.AdminPortal }))),
 );
-const SuperadminPortal = withRouteSkeleton(
-  lazy(() => import('./pages/Portal/SuperadminPortal').then((module) => ({ default: module.SuperadminPortal }))),
-);
 const DownloadableForms = withRouteSkeleton(
   lazy(() => import('./pages/Portal/DownloadableForms').then((module) => ({ default: module.DownloadableForms }))),
 );
@@ -105,7 +102,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/superadmin',
-    Component: SuperadminPortal,
+    loader: () => redirect('/admin-portal'),
   },
   {
     path: '/admin',

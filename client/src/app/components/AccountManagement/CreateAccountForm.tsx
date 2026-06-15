@@ -12,7 +12,6 @@ interface CreateAccountFormProps {
 const CREATABLE_ROLES_BY_CALLER: Record<string, { value: UserRole; label: string }[]> = {
   registrar: [
     { value: 'teacher',   label: 'Teacher' },
-    { value: 'student',   label: 'Student' },
     { value: 'principal', label: 'Principal' },
     { value: 'librarian', label: 'Librarian' },
     { value: 'admin',     label: 'System Admin' },

@@ -1,5 +1,7 @@
-const {admin} = require("../firebaseAdmin");
+const jwt = require("jsonwebtoken");
 const {forbidden, unauthorized} = require("../httpError");
+
+const JWT_SECRET = process.env.JWT_SECRET || "mmpns-jwt-secret-dev";
 
 const getBearerToken = (req) => {
   const header = req.get("Authorization") || "";
@@ -14,7 +16,7 @@ const requireAuth = (allowedRoles = []) => async (req, res, next) => {
       throw unauthorized("A valid session token is required.");
     }
 
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = jwt.verify(token, JWT_SECRET);
     const role = String(decoded.role || "").toLowerCase();
 
     if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
@@ -24,12 +26,10 @@ const requireAuth = (allowedRoles = []) => async (req, res, next) => {
     req.auth = {...decoded, role};
     next();
   } catch (error) {
-    if (error && typeof error.code === "string" && error.code.startsWith("auth/")) {
-      if (error.code === "auth/id-token-expired") {
-        next(unauthorized("Your session has expired. Please sign in again."));
-      } else {
-        next(unauthorized("A valid session token is required."));
-      }
+    if (error.name === "TokenExpiredError") {
+      next(unauthorized("Your session has expired. Please sign in again."));
+    } else if (error.name === "JsonWebTokenError") {
+      next(unauthorized("A valid session token is required."));
     } else {
       next(error);
     }

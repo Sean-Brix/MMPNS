@@ -21,6 +21,7 @@ const pageToPath: Record<string, string> = {
   developer: '/developer',
   'teacher-portal': '/teacher-portal',
   'student-portal': '/student-portal',
+  'admin-portal': '/admin-portal',
   'downloadable-forms': '/downloadable-forms',
 };
 

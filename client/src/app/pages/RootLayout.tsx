@@ -4,8 +4,6 @@ import { Toaster } from 'sonner';
 import { motion } from 'motion/react';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../../utils/firebaseConfig';
 import { initializeDatabase } from '../../utils/database';
 
 const PORTAL_PATHS = [
@@ -25,16 +23,6 @@ export const RootLayout: React.FC = () => {
 
   useEffect(() => {
     void initializeDatabase();
-  }, []);
-
-  // Keep Firebase ID token fresh on page reload/focus
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        void user.getIdToken(true).catch(() => undefined);
-      }
-    });
-    return unsubscribe;
   }, []);
 
   return (

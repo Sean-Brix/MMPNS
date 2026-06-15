@@ -21,6 +21,7 @@
     "rules": "storage.rules"
   },
   "hosting": {
+    "site": "mmpns-9bdde",
     "public": "./client/dist",
     "ignore": [
       "firebase.json",

@@ -118,6 +118,7 @@ export const LibrarianPortal: React.FC = () => {
       <PortalLogin
         portalName="Library Portal"
         portalDescription="Book management and circulation"
+        allowedRoles={['librarian']}
         onSuccess={(result) => {
           if (result.user && result.role === 'librarian') {
             setUser(result.user);

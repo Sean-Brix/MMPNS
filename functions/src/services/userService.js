@@ -1,11 +1,8 @@
 const crypto = require("crypto");
-const {defineSecret} = require("firebase-functions/params");
+const bcrypt = require("bcryptjs");
 const {admin, firestore} = require("../firebaseAdmin");
 
-const FIREBASE_WEB_API_KEY = defineSecret("FIREBASE_WEB_API_KEY");
-
 const USERS_COLLECTION = "users";
-const SYNTHETIC_EMAIL_DOMAIN = "@mmpns.internal";
 
 const VALID_ROLES = [
   "teacher",
@@ -17,7 +14,6 @@ const VALID_ROLES = [
   "admin",
 ];
 
-// Roles that non-superadmin can create
 const NON_SUPERADMIN_ROLES = [
   "teacher",
   "student",
@@ -27,12 +23,19 @@ const NON_SUPERADMIN_ROLES = [
   "admin",
 ];
 
+// ─── Password Hashing ──────────────────────────────────────────────────────────
+
+const hashPassword = (plain) => bcrypt.hash(String(plain), 10);
+const checkPassword = (plain, hash) => {
+  if (!hash) return Promise.resolve(false);
+  return bcrypt.compare(String(plain), hash);
+};
+
 // ─── ID / Code Generation ─────────────────────────────────────────────────────
 
 const generateUUID = () => crypto.randomUUID();
 
 const generateStudentCode = () => {
-  // Unambiguous chars: no 0/O, 1/I
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const bytes = crypto.randomBytes(8);
   let code = "";
@@ -42,45 +45,15 @@ const generateStudentCode = () => {
   return code;
 };
 
-const getSyntheticEmail = (username) =>
-  `${String(username).trim().toLowerCase()}${SYNTHETIC_EMAIL_DOMAIN}`;
-
-// ─── Firebase Auth REST (password verification) ───────────────────────────────
-
-const getWebApiKey = () => {
-  const fromEnv = process.env.FIREBASE_WEB_API_KEY;
-  if (fromEnv) return fromEnv;
-
-  try {
-    return FIREBASE_WEB_API_KEY.value();
-  } catch {
-    if (process.env.FUNCTIONS_EMULATOR) {
-      return process.env.FIREBASE_WEB_API_KEY || "";
-    }
-    throw new Error("FIREBASE_WEB_API_KEY secret is not configured.");
+const generateSystemIdRaw = () => {
+  let digits = "";
+  for (let i = 0; i < 12; i++) {
+    digits += (crypto.randomBytes(1)[0] % 10).toString();
   }
+  return digits;
 };
 
-const verifyFirebasePassword = async (username, password) => {
-  const apiKey = getWebApiKey();
-  if (!apiKey) return false;
-
-  const email = getSyntheticEmail(username);
-
-  try {
-    const res = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({email, password, returnSecureToken: false}),
-        },
-    );
-    return res.ok;
-  } catch {
-    return false;
-  }
-};
+const formatSystemId = (rawId) => rawId.match(/.{2}/g).join("0");
 
 // ─── Display Name / Initials ──────────────────────────────────────────────────
 
@@ -105,13 +78,10 @@ const buildInitials = (displayName) =>
 
 // ─── Sensitive Field Stripping ────────────────────────────────────────────────
 
-// authUid is always removed before sending to client.
-// uid (UUID) is kept in API responses for use in management operations
-// but is never rendered in the UI as visible text.
 const stripSensitiveFields = (user) => {
   if (!user || typeof user !== "object") return user;
   const safe = {...user};
-  delete safe.authUid;
+  delete safe.passwordHash;
   delete safe.password;
   return safe;
 };
@@ -133,7 +103,16 @@ const ensureBootstrapSuperAdmin = async () => {
         .limit(1)
         .get();
 
-    if (!snapshot.empty) return; // Superadmin already exists
+    if (!snapshot.empty) {
+      // Migrate: existing superadmin may lack passwordHash if created before bcrypt auth
+      const existingUser = snapshot.docs[0].data();
+      if (!existingUser.passwordHash) {
+        const passwordHash = await hashPassword(BOOTSTRAP_SUPERADMIN.password);
+        await firestore.collection(USERS_COLLECTION).doc(existingUser.uid).update({passwordHash});
+        console.info("[MMPNS] Bootstrap superadmin password hash migrated.");
+      }
+      return;
+    }
 
     await createUser({
       role: "superadmin",
@@ -152,6 +131,7 @@ const ensureBootstrapSuperAdmin = async () => {
 
 // ─── User CRUD ────────────────────────────────────────────────────────────────
 
+// Returns the raw user doc including passwordHash — for internal use only.
 const getUserByUsername = async (username) => {
   const normalized = String(username || "").trim().toLowerCase();
   if (!normalized) return null;
@@ -167,7 +147,6 @@ const getUserByUsername = async (username) => {
   const data = snapshot.docs[0].data();
   if (data.status !== "active") return null;
 
-  // uid is stored in the document itself
   return data;
 };
 
@@ -215,18 +194,18 @@ const createUser = async ({role, username, password, createdBy, ...profileFields
     throw badRequest(errors.join(" "));
   }
 
-  // Determine username (students get auto-generated student code)
   let finalUsername;
   let studentCode;
+  let systemIdRaw;
 
   if (role === "student") {
     studentCode = await generateUniqueStudentCode();
     finalUsername = studentCode;
+    systemIdRaw = generateSystemIdRaw();
   } else {
     finalUsername = String(username).trim().toLowerCase();
   }
 
-  // Check username uniqueness
   const existing = await firestore
       .collection(USERS_COLLECTION)
       .where("username", "==", finalUsername)
@@ -239,23 +218,13 @@ const createUser = async ({role, username, password, createdBy, ...profileFields
   }
 
   const uid = generateUUID();
-  const syntheticEmail = getSyntheticEmail(finalUsername);
   const displayName = buildDisplayName(role, {...profileFields, username: finalUsername});
   const initials = buildInitials(displayName);
-
-  // Create Firebase Auth user
-  const authUser = await admin.auth().createUser({
-    email: syntheticEmail,
-    password,
-    displayName,
-  });
-
-  await admin.auth().setCustomUserClaims(authUser.uid, {role, displayName});
+  const passwordHash = await hashPassword(password);
 
   const now = new Date().toISOString();
   const userDoc = {
     uid,
-    authUid: authUser.uid,
     role,
     username: finalUsername,
     status: "active",
@@ -264,16 +233,16 @@ const createUser = async ({role, username, password, createdBy, ...profileFields
     lastLogin: null,
     displayName,
     initials,
+    passwordHash,
     ...profileFields,
   };
 
   if (role === "student") {
     userDoc.studentCode = studentCode;
-    delete userDoc.username; // stored but not needed separately since username = studentCode
-    userDoc.username = studentCode; // keep consistent
+    userDoc.systemIdRaw = systemIdRaw;
+    userDoc.systemId = formatSystemId(systemIdRaw);
+    userDoc.username = studentCode;
   }
-
-  delete userDoc.password;
 
   await firestore.collection(USERS_COLLECTION).doc(uid).set(userDoc);
 
@@ -297,7 +266,6 @@ const updateUserStatus = async (uid, status) => {
   }
 
   await firestore.collection(USERS_COLLECTION).doc(uid).update({status});
-  await admin.auth().updateUser(user.authUid, {disabled: status === "inactive"});
 };
 
 const resetUserPassword = async (uid, newPassword) => {
@@ -307,7 +275,8 @@ const resetUserPassword = async (uid, newPassword) => {
     throw notFound("User not found.");
   }
 
-  await admin.auth().updateUser(user.authUid, {password: newPassword});
+  const passwordHash = await hashPassword(newPassword);
+  await firestore.collection(USERS_COLLECTION).doc(uid).update({passwordHash});
 };
 
 const updateLastLogin = async (uid) => {
@@ -318,10 +287,9 @@ const updateLastLogin = async (uid) => {
 };
 
 module.exports = {
-  FIREBASE_WEB_API_KEY,
   VALID_ROLES,
   NON_SUPERADMIN_ROLES,
-  verifyFirebasePassword,
+  checkPassword,
   getUserByUsername,
   getUserByUid,
   createUser,
