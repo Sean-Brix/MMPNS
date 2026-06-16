@@ -284,23 +284,92 @@ const deleteUser = async (uid) => {
   await firestore.collection(USERS_COLLECTION).doc(uid).delete();
 };
 
-const updateUserProfile = async (uid, fields) => {
+const updateUserProfile = async (uid, fields, context = {}) => {
   const current = await getUserByUid(uid);
   if (!current) {
     const {notFound} = require("../httpError");
     throw notFound("User not found.");
   }
 
-  const safeFields = getAllowedProfileFields(current.role);
+  const {badRequest, forbidden} = require("../httpError");
+  const callerRole = String(context.callerRole || "").toLowerCase();
+  const callerUid = String(context.callerUid || "");
+  let nextRole = current.role;
+
+  if (Object.prototype.hasOwnProperty.call(fields, "role")) {
+    const requestedRole = String(fields.role || "").trim().toLowerCase();
+    if (!VALID_ROLES.includes(requestedRole)) {
+      throw badRequest(`Invalid role: ${fields.role}`);
+    }
+
+    if ((current.role === "superadmin" || requestedRole === "superadmin") &&
+      callerRole !== "superadmin") {
+      throw forbidden("Only superadmins can edit superadmin access.");
+    }
+
+    if (callerUid === uid &&
+      current.role === "superadmin" &&
+      requestedRole !== "superadmin") {
+      throw forbidden("You cannot remove your own superadmin access.");
+    }
+
+    nextRole = requestedRole;
+  }
+
+  const safeFields = getAllowedProfileFields(nextRole);
 
   const update = {};
+
+  if (nextRole !== current.role) {
+    update.role = nextRole;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(fields, "status")) {
+    const status = String(fields.status || "").trim().toLowerCase();
+    if (!["active", "inactive"].includes(status)) {
+      throw badRequest("Status must be \"active\" or \"inactive\".");
+    }
+
+    if (callerUid === uid && status !== "active") {
+      throw forbidden("You cannot deactivate the account you are using.");
+    }
+
+    update.status = status;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(fields, "username")) {
+    const username = String(fields.username || "").trim().toLowerCase();
+    if (!username) {
+      throw badRequest(nextRole === "student" ?
+        "Student login code is required." :
+        "Username is required.");
+    }
+
+    if (username !== current.username) {
+      const existing = await firestore
+          .collection(USERS_COLLECTION)
+          .where("username", "==", username)
+          .limit(1)
+          .get();
+
+      if (!existing.empty && existing.docs[0].id !== uid) {
+        throw badRequest(`Username "${username}" is already taken.`);
+      }
+    }
+
+    update.username = username;
+    if (nextRole === "student") {
+      update.studentCode = username;
+    }
+  }
+
   for (const key of safeFields) {
     if (key in fields) update[key] = fields[key];
   }
 
   // Always rebuild displayName when any profile field changes
   const merged = {...current, ...update};
-  update.displayName = buildDisplayName(current.role, merged);
+  update.displayName = buildDisplayName(nextRole, merged);
   update.initials = buildInitials(update.displayName);
 
   if (fields.password) {

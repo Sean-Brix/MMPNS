@@ -106,7 +106,10 @@ router.delete("/:uid", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next
 // PATCH /api/accounts/:uid/profile — update editable profile fields
 router.patch("/:uid/profile", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
   try {
-    const user = await updateUserProfile(req.params.uid, req.body);
+    const user = await updateUserProfile(req.params.uid, req.body, {
+      callerRole: req.auth.role,
+      callerUid: req.auth.uid,
+    });
     res.json({success: true, user});
   } catch (error) {
     next(error);
