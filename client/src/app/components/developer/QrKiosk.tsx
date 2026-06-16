@@ -1,40 +1,49 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ScanLine, X, CheckCircle2, AlertCircle, Wifi, MapPin, Hash, Calendar, Clock3 } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { AlertCircle, Clock3, Hash, ScanLine, UserRound, Wifi, X } from 'lucide-react';
 import {
   recordAttendanceScan,
   type AttendanceRecord,
 } from '../../../utils/apiClient';
 
-// ─── Validation ───────────────────────────────────────────────────────────────
+const SCHOOL_LOGO_SRC = '/images/brand/logo.png';
+const KIOSK_BACKGROUND_SRC = '/images/homepage/hero1.png';
+
 const SYSTEM_ID_PATTERN = /^\d{2}0\d{2}0\d{2}0\d{2}0\d{2}0\d{2}$/;
 
 const validateSystemId = (raw: string) => {
   const s = raw.trim();
   if (s.length !== 17) return { valid: false, reason: `Expected 17 digits, got ${s.length}.` };
-  if (!SYSTEM_ID_PATTERN.test(s)) return { valid: false, reason: 'Format mismatch — check QR code.' };
+  if (!SYSTEM_ID_PATTERN.test(s)) return { valid: false, reason: 'Format mismatch - check QR code.' };
   return { valid: true, reason: undefined };
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 interface KioskStudent {
   uid: string;
   displayName: string;
   firstName?: string;
   lastName?: string;
   lrn?: string;
-  province?: string;
-  city?: string;
   photoUrl?: string;
-  status?: string;
-  createdAt?: string;
-  gradeLevel?: string;
-  section?: string;
 }
 
 type KioskState = 'welcome' | 'loading' | 'found' | 'not_found' | 'invalid';
 
-// ─── Sub-views ────────────────────────────────────────────────────────────────
+const formatTimeIn = (attendance: AttendanceRecord) => {
+  const timeIn = attendance.firstScanAt || attendance.lastScanAt;
+  if (!timeIn) return '-';
+
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(timeIn));
+};
 
 const WelcomeView: React.FC = () => (
   <motion.div
@@ -43,45 +52,39 @@ const WelcomeView: React.FC = () => (
     animate={{ opacity: 1 }}
     exit={{ opacity: 0, scale: 0.96 }}
     transition={{ duration: 0.3 }}
-    className="flex flex-col items-center justify-center gap-10 w-full h-full text-center px-8"
+    className="flex h-full w-full flex-col items-center justify-center gap-10 px-8 text-center"
   >
-    {/* School branding */}
     <div className="flex flex-col items-center gap-4">
-      <div className="w-20 h-20 rounded-2xl bg-[#EDCD1F] flex items-center justify-center shadow-2xl shadow-yellow-400/20">
-        <span className="text-[#185C20] font-black text-4xl">M</span>
+      <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white p-2 shadow-2xl shadow-black/25">
+        <img src={SCHOOL_LOGO_SRC} alt="MMPNS logo" className="h-full w-full object-contain" />
       </div>
       <div>
-        <p className="text-white/80 text-xl font-semibold tracking-wide">Madre Maria Pia Notari School</p>
-        <p className="text-white/30 text-sm mt-1 tracking-widest uppercase">Student Attendance System</p>
+        <p className="text-xl font-semibold tracking-wide text-white/85">Madre Maria Pia Notari School</p>
+        <p className="mt-1 text-sm uppercase tracking-widest text-white/40">Student Attendance System</p>
       </div>
     </div>
 
-    {/* Scan icon */}
     <motion.div
-      animate={{ opacity: [0.4, 1, 0.4], scale: [0.97, 1.03, 0.97] }}
+      animate={{ opacity: [0.45, 1, 0.45], scale: [0.97, 1.03, 0.97] }}
       transition={{ repeat: Infinity, duration: 2.8, ease: 'easeInOut' }}
-      className="relative w-52 h-52 flex items-center justify-center"
+      className="relative flex h-52 w-52 items-center justify-center"
     >
-      {/* Corner brackets */}
       {[
-        'top-0 left-0 border-t-4 border-l-4 rounded-tl-2xl',
-        'top-0 right-0 border-t-4 border-r-4 rounded-tr-2xl',
-        'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-2xl',
-        'bottom-0 right-0 border-b-4 border-r-4 rounded-br-2xl',
-      ].map((cls, i) => (
-        <span key={i} className={`absolute w-10 h-10 border-white/50 ${cls}`} />
+        'left-0 top-0 rounded-tl-2xl border-l-4 border-t-4',
+        'right-0 top-0 rounded-tr-2xl border-r-4 border-t-4',
+        'bottom-0 left-0 rounded-bl-2xl border-b-4 border-l-4',
+        'bottom-0 right-0 rounded-br-2xl border-b-4 border-r-4',
+      ].map((cls) => (
+        <span key={cls} className={`absolute h-10 w-10 border-white/55 ${cls}`} />
       ))}
-      <ScanLine className="w-24 h-24 text-white/40" />
+      <ScanLine className="h-24 w-24 text-white/50" />
     </motion.div>
 
-    {/* Instruction */}
     <div className="space-y-3">
-      <p className="text-white font-black tracking-tight" style={{ fontSize: 'clamp(2.5rem, 6vw, 5rem)' }}>
+      <p className="font-black tracking-tight text-white" style={{ fontSize: 'clamp(2.5rem, 6vw, 5rem)' }}>
         SCAN YOUR STUDENT ID
       </p>
-      <p className="text-white/40 text-xl">
-        Hold the QR code in front of the scanner
-      </p>
+      <p className="text-xl text-white/55">Hold the QR code in front of the scanner</p>
     </div>
   </motion.div>
 );
@@ -94,8 +97,8 @@ const LoadingView: React.FC = () => (
     exit={{ opacity: 0 }}
     className="flex flex-col items-center gap-6"
   >
-    <div className="w-20 h-20 rounded-full border-4 border-white/10 border-t-white/80 animate-spin" />
-    <p className="text-white/50 text-xl">Verifying student...</p>
+    <div className="h-20 w-20 animate-spin rounded-full border-4 border-white/10 border-t-white/80" />
+    <p className="text-xl text-white/60">Verifying student...</p>
   </motion.div>
 );
 
@@ -104,96 +107,81 @@ const FoundView: React.FC<{
   attendance: AttendanceRecord;
   isFirstScan: boolean;
 }> = ({ student, attendance, isFirstScan }) => {
-  const initials = (student.firstName?.[0] ?? '') + (student.lastName?.[0] ?? '');
-  const regDate = student.createdAt
-    ? new Date(student.createdAt).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-    : '—';
+  const initials = `${student.firstName?.[0] ?? ''}${student.lastName?.[0] ?? ''}`.toUpperCase();
+  const fullName = student.displayName || [student.firstName, student.lastName].filter(Boolean).join(' ') || '-';
+  const timeIn = formatTimeIn(attendance);
 
   return (
     <motion.div
       key="found"
-      initial={{ opacity: 0, x: -30 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 30 }}
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -24 }}
       transition={{ type: 'spring', duration: 0.4, bounce: 0.1 }}
-      className="flex items-center gap-16 w-full h-full px-16"
+      className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 lg:px-20"
     >
-      {/* Photo — left side */}
-      <div className="flex-shrink-0 flex flex-col items-center gap-6">
-        <div
-          className="rounded-3xl overflow-hidden border-4 border-green-400/60 shadow-2xl shadow-green-500/20"
-          style={{ width: 'clamp(180px, 22vw, 320px)', height: 'clamp(180px, 22vw, 320px)' }}
-        >
-          {student.photoUrl ? (
-            <img src={student.photoUrl} alt={student.displayName} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-white/10 flex items-center justify-center">
-              <span className="font-black text-white/30" style={{ fontSize: 'clamp(3rem, 8vw, 7rem)' }}>
-                {initials}
-              </span>
+      <div className="w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/20 bg-white/92 shadow-2xl shadow-black/35">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#185C20]/10 px-6 py-5 md:px-8">
+          <div className="flex items-center gap-4">
+            <img src={SCHOOL_LOGO_SRC} alt="MMPNS logo" className="h-14 w-14 rounded-full bg-white object-contain" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#185C20]/50">Student ID Scan</p>
+              <p className="text-xl font-black text-[#185C20] md:text-2xl">Attendance Recorded</p>
             </div>
-          )}
-        </div>
-
-        {/* Status badge */}
-        <div className={`flex items-center gap-2.5 px-6 py-2.5 rounded-full border font-semibold text-lg ${
-          student.status === 'active'
-            ? 'bg-green-500/15 border-green-400/30 text-green-300'
-            : 'bg-red-500/15 border-red-400/30 text-red-300'
-        }`}>
-          <CheckCircle2 size={20} />
-          {student.status === 'active' ? 'Active Student' : 'Inactive'}
-        </div>
-      </div>
-
-      {/* Info — right side */}
-      <div className="flex-1 flex flex-col gap-8 min-w-0">
-        {/* Name */}
-        <div>
-          <p className="text-white/40 uppercase tracking-widest text-sm mb-2">Student</p>
-          <p className="text-white font-black leading-tight break-words"
-            style={{ fontSize: 'clamp(2rem, 4.5vw, 4rem)' }}>
-            {student.displayName}
-          </p>
-          <p className="text-white/40 text-lg mt-2">
-            {[student.gradeLevel, student.section].filter(Boolean).join(' - ') || 'Grade and section not assigned'}
-          </p>
-        </div>
-
-        {/* Detail cards */}
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            { icon: Hash, label: 'LRN', value: student.lrn ?? '—' },
-            { icon: Calendar, label: 'Registered', value: regDate },
-            { icon: MapPin, label: 'Province', value: student.province ?? '—' },
-            { icon: MapPin, label: 'City / Municipality', value: student.city ?? '—' },
-          ].map(({ icon: Icon, label, value }) => (
-            <div key={label} className="bg-white/6 border border-white/8 rounded-2xl p-5">
-              <div className="flex items-center gap-2 text-white/30 mb-2">
-                <Icon size={14} />
-                <p className="text-xs uppercase tracking-widest">{label}</p>
-              </div>
-              <p className="text-white font-bold text-xl truncate">{value}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-4 rounded-2xl border border-green-400/20 bg-green-400/10 p-5">
-          <div className="w-12 h-12 rounded-full bg-green-400/15 flex items-center justify-center">
-            <Clock3 className="w-6 h-6 text-green-300" />
           </div>
+          <span className="rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-700">
+            {isFirstScan ? 'Time in saved' : `Time in already saved - scan ${attendance.scanCount}`}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 items-center gap-8 p-6 md:p-8 lg:grid-cols-[minmax(220px,320px)_1fr]">
           <div>
-            <p className="text-green-200 font-semibold">
-              {isFirstScan ? 'Attendance recorded' : 'Attendance scan updated'}
-            </p>
-            <p className="text-green-100/50 text-sm mt-0.5">
-              {new Date(attendance.lastScanAt).toLocaleTimeString('en-PH', {
-                timeZone: 'Asia/Manila',
-                hour: 'numeric',
-                minute: '2-digit',
-              })}
-              {attendance.scanCount > 1 ? ` - scan ${attendance.scanCount}` : ''}
-            </p>
+            <p className="mb-3 text-xs font-bold uppercase tracking-[0.22em] text-[#185C20]/45">Photo</p>
+            <div
+              className="mx-auto overflow-hidden rounded-3xl border border-[#185C20]/15 bg-[#185C20]/5 shadow-xl shadow-[#185C20]/10 lg:mx-0"
+              style={{ width: 'min(100%, 320px)', aspectRatio: '1 / 1' }}
+            >
+              {student.photoUrl ? (
+                <img src={student.photoUrl} alt={fullName} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-4 text-[#185C20]/35">
+                  <UserRound className="h-20 w-20" />
+                  <span className="text-5xl font-black">{initials || '-'}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            <div className="rounded-2xl border border-[#185C20]/10 bg-[#185C20]/[0.03] p-5">
+              <div className="mb-2 flex items-center gap-2 text-[#185C20]/45">
+                <UserRound size={16} />
+                <p className="text-xs font-bold uppercase tracking-[0.2em]">Full Name</p>
+              </div>
+              <p className="break-words font-black leading-tight text-[#185C20]" style={{ fontSize: 'clamp(2rem, 5vw, 4.5rem)' }}>
+                {fullName}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-[#185C20]/10 bg-white p-5">
+                <div className="mb-2 flex items-center gap-2 text-[#185C20]/45">
+                  <Clock3 size={16} />
+                  <p className="text-xs font-bold uppercase tracking-[0.2em]">Time In</p>
+                </div>
+                <p className="text-2xl font-black leading-snug text-[#185C20]">{timeIn}</p>
+              </div>
+
+              <div className="rounded-2xl border border-[#185C20]/10 bg-white p-5">
+                <div className="mb-2 flex items-center gap-2 text-[#185C20]/45">
+                  <Hash size={16} />
+                  <p className="text-xs font-bold uppercase tracking-[0.2em]">LRN</p>
+                </div>
+                <p className="break-all font-mono text-3xl font-black leading-tight text-[#185C20]">
+                  {student.lrn || '-'}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -208,22 +196,20 @@ const ErrorView: React.FC<{ type: 'not_found' | 'invalid'; message: string }> = 
     animate={{ opacity: 1, scale: 1 }}
     exit={{ opacity: 0 }}
     transition={{ type: 'spring', duration: 0.35, bounce: 0.15 }}
-    className="flex flex-col items-center gap-8 text-center px-8"
+    className="flex flex-col items-center gap-8 px-8 text-center"
   >
-    <div className="w-36 h-36 rounded-full bg-red-500/10 border-2 border-red-400/30 flex items-center justify-center">
-      <AlertCircle className="w-16 h-16 text-red-400" />
+    <div className="flex h-36 w-36 items-center justify-center rounded-full border-2 border-red-400/30 bg-red-500/10">
+      <AlertCircle className="h-16 w-16 text-red-400" />
     </div>
     <div className="space-y-3">
-      <p className="text-white font-black" style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)' }}>
+      <p className="font-black text-white" style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)' }}>
         {type === 'not_found' ? 'Student Not Found' : 'Invalid QR Code'}
       </p>
-      <p className="text-white/40 text-xl max-w-lg">{message}</p>
+      <p className="max-w-lg text-xl text-white/50">{message}</p>
     </div>
-    <p className="text-white/20 text-lg animate-pulse">Scan next student ID...</p>
+    <p className="animate-pulse text-lg text-white/30">Scan next student ID...</p>
   </motion.div>
 );
-
-// ─── Main Kiosk ───────────────────────────────────────────────────────────────
 
 export const QrKiosk: React.FC<{
   onClose: () => void;
@@ -238,7 +224,6 @@ export const QrKiosk: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null);
   const scanIdRef = useRef(0);
 
-  // Always keep focus on the hidden input
   useEffect(() => {
     const focus = () => inputRef.current?.focus();
     focus();
@@ -257,7 +242,6 @@ export const QrKiosk: React.FC<{
       return;
     }
 
-    // Track scan generation — if a newer scan arrives, discard this result
     const thisScan = ++scanIdRef.current;
     setKioskState('loading');
 
@@ -292,32 +276,28 @@ export const QrKiosk: React.FC<{
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col select-none"
-      style={{ background: '#07091a' }}
+      className="fixed inset-0 z-50 flex select-none flex-col bg-cover bg-center bg-no-repeat"
+      style={{ backgroundImage: `linear-gradient(rgba(7, 9, 26, 0.72), rgba(7, 9, 26, 0.78)), url(${KIOSK_BACKGROUND_SRC})` }}
       onClick={() => inputRef.current?.focus()}
     >
-      {/* ── Top bar ── */}
-      <div className="flex-shrink-0 flex items-center justify-between px-8 py-5 border-b border-white/8">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 bg-black/20 px-8 py-5 backdrop-blur-sm">
         <div className="flex items-center gap-4">
-          <div className="w-11 h-11 rounded-xl bg-[#EDCD1F] flex items-center justify-center shadow-lg">
-            <span className="text-[#185C20] font-black text-xl">M</span>
-          </div>
+          <img src={SCHOOL_LOGO_SRC} alt="MMPNS logo" className="h-12 w-12 rounded-full bg-white object-contain p-1.5 shadow-lg" />
           <div>
-            <p className="text-white font-bold text-base leading-tight">MMPNS Attendance Kiosk</p>
-            <p className="text-white/30 text-xs tracking-wide">Scan student ID to record attendance</p>
+            <p className="text-base font-bold leading-tight text-white">MMPNS Attendance Kiosk</p>
+            <p className="text-xs tracking-wide text-white/40">Scan student ID to record attendance</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/15 text-white/50 hover:text-white hover:border-white/30 text-sm transition-colors"
+          className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2.5 text-sm text-white/60 transition-colors hover:border-white/30 hover:text-white"
         >
           <X size={15} />
           Exit Kiosk
         </button>
       </div>
 
-      {/* ── Main content — fills all remaining space ── */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="relative flex-1 overflow-hidden">
         <AnimatePresence mode="wait">
           {kioskState === 'welcome' && <div className="absolute inset-0 flex items-center justify-center"><WelcomeView /></div>}
           {kioskState === 'loading' && <div className="absolute inset-0 flex items-center justify-center"><LoadingView /></div>}
@@ -334,32 +314,30 @@ export const QrKiosk: React.FC<{
         </AnimatePresence>
       </div>
 
-      {/* ── Bottom bar ── */}
-      <div className="flex-shrink-0 flex items-center justify-between px-8 py-4 border-t border-white/8">
-        <div className="flex items-center gap-2.5 text-white/25 text-sm">
-          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+      <div className="flex flex-shrink-0 items-center justify-between border-t border-white/10 bg-black/20 px-8 py-4 backdrop-blur-sm">
+        <div className="flex items-center gap-2.5 text-sm text-white/35">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-green-400" />
           <Wifi size={13} />
-          <span>Scanner active — scan anytime</span>
+          <span>Scanner active - scan anytime</span>
         </div>
         {kioskState !== 'welcome' && kioskState !== 'loading' && (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-white/20 text-sm"
+            className="text-sm text-white/30"
           >
             Scan next student ID at any time
           </motion.p>
         )}
       </div>
 
-      {/* Hidden input — always capturing scanner wedge input */}
       <input
         ref={inputRef}
         type="text"
         value={inputValue}
         onChange={(e) => setInputValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="fixed opacity-0 pointer-events-none w-px h-px"
+        className="pointer-events-none fixed h-px w-px opacity-0"
         autoFocus
         tabIndex={0}
         aria-hidden="true"
