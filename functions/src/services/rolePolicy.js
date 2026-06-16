@@ -64,6 +64,8 @@ const ROLE_PROFILE_FIELDS = {
     "gender",
     "guardianName",
     "guardianContact",
+    "emergencyContactName",
+    "emergencyContactNumber",
   ],
   principal: ["position", "department"],
   librarian: ["position", "department"],

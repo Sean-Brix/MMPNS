@@ -24,6 +24,8 @@ export interface StudentCodeRecord {
   gradeLevel?: string;
   section?: string;
   lrn?: string;
+  emergencyContactName?: string;
+  emergencyContactNumber?: string;
 }
 
 export interface StudentCodeDocumentOptions {
@@ -140,13 +142,26 @@ const createLabelCells = async (
           ],
         }),
         new Paragraph({
-          spacing: { before: 0, after: 0 },
+          spacing: { before: 0, after: 20 },
           children: [
             new TextRun({
-              text: `ID: ${student.systemId}`,
+              text: `ID: ${student.systemId}${student.lrn ? ` | LRN: ${student.lrn}` : ''}`,
               font: 'Calibri',
               size: 13,
               color: '666666',
+            }),
+          ],
+        }),
+        new Paragraph({
+          spacing: { before: 0, after: 0 },
+          children: [
+            new TextRun({
+              text: student.emergencyContactName || student.emergencyContactNumber
+                ? `ICE: ${[student.emergencyContactName, student.emergencyContactNumber].filter(Boolean).join(' - ')}`
+                : 'ICE: Not on file',
+              font: 'Calibri',
+              size: 12,
+              color: '888888',
             }),
           ],
         }),

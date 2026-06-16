@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import {
   UserPlus, X, Search, Users, QrCode, Download,
-  RefreshCw, CheckCircle2, Camera, Pencil, Trash2, AlertTriangle, FileDown,
+  RefreshCw, CheckCircle2, Camera, Pencil, Trash2, AlertTriangle,
+  Upload, FileDown,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
@@ -10,14 +10,13 @@ import {
   getAccounts, createAccount, deleteAccount,
   updateAccountProfile, uploadStudentPhoto,
 } from '../../../utils/apiClient';
-import {
-  downloadStudentCodeDocument,
-  type StudentCodeType,
-} from '../../../utils/studentCodeDocument';
+import { Modal, inputClass, labelClass } from './shared';
+import { BulkStudentImport } from './BulkStudentImport';
+import { ExportIdCodesModal } from './ExportIdCodesModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface StudentRecord {
+export interface StudentRecord {
   uid: string;
   role: string;
   displayName: string;
@@ -30,6 +29,8 @@ interface StudentRecord {
   city?: string;
   noOfSiblings?: number;
   monthlyFamilyIncome?: number;
+  emergencyContactName?: string;
+  emergencyContactNumber?: string;
   systemId?: string;
   studentCode?: string;
   createdAt?: string;
@@ -39,39 +40,7 @@ interface StudentRecord {
   section?: string;
 }
 
-// ─── Modal Shell ──────────────────────────────────────────────────────────────
-
-const Modal: React.FC<{
-  open: boolean; onClose: () => void;
-  children: React.ReactNode; maxW?: string;
-}> = ({ open, onClose, children, maxW = 'max-w-lg' }) => (
-  <AnimatePresence>
-    {open && (
-      <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          transition={{ type: 'spring', duration: 0.35, bounce: 0.15 }}
-          className={`bg-white rounded-xl shadow-2xl w-full ${maxW} max-h-[90vh] overflow-hidden flex flex-col`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {children}
-        </motion.div>
-      </motion.div>
-    )}
-  </AnimatePresence>
-);
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const inputClass =
-  'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all';
-const labelClass = 'block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1';
 
 const PhotoPicker: React.FC<{
   preview: string;
@@ -337,6 +306,21 @@ const StudentFormFields: React.FC<{
       </div>
     </section>
 
+    {/* Emergency Contact */}
+    <section>
+      <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Emergency Contact</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Contact Name *</label>
+          <input value={form.emergencyContactName} onChange={set('emergencyContactName')} className={inputClass} placeholder="e.g. Maria Santos" required />
+        </div>
+        <div>
+          <label className={labelClass}>Contact Number *</label>
+          <input value={form.emergencyContactNumber} onChange={set('emergencyContactNumber')} className={`${inputClass} font-mono`} placeholder="e.g. 09171234567" required />
+        </div>
+      </div>
+    </section>
+
     {/* Password */}
     <section>
       <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">
@@ -369,7 +353,7 @@ const StudentFormFields: React.FC<{
 const BLANK_FORM = {
   firstName: '', middleName: '', lastName: '', extension: '',
   noOfSiblings: '', monthlyFamilyIncome: '', province: '', city: '', lrn: '', password: '',
-  gradeLevel: '', section: '',
+  gradeLevel: '', section: '', emergencyContactName: '', emergencyContactNumber: '',
 };
 
 const RegisterForm: React.FC<{
@@ -400,6 +384,8 @@ const RegisterForm: React.FC<{
         noOfSiblings: Number(form.noOfSiblings) || 0,
         monthlyFamilyIncome: Number(form.monthlyFamilyIncome) || 0,
         province: form.province.trim(), city: form.city.trim(),
+        emergencyContactName: form.emergencyContactName.trim(),
+        emergencyContactNumber: form.emergencyContactNumber.trim(),
       };
       if (form.middleName.trim()) payload.middleName = form.middleName.trim();
       if (form.extension.trim()) payload.extension = form.extension.trim();
@@ -493,6 +479,8 @@ const EditForm: React.FC<{
     lrn: student.lrn ?? '',
     gradeLevel: student.gradeLevel ?? '',
     section: student.section ?? '',
+    emergencyContactName: student.emergencyContactName ?? '',
+    emergencyContactNumber: student.emergencyContactNumber ?? '',
     password: '',
   });
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -517,6 +505,8 @@ const EditForm: React.FC<{
         noOfSiblings: Number(form.noOfSiblings) || 0,
         monthlyFamilyIncome: Number(form.monthlyFamilyIncome) || 0,
         province: form.province.trim(), city: form.city.trim(),
+        emergencyContactName: form.emergencyContactName.trim(),
+        emergencyContactNumber: form.emergencyContactNumber.trim(),
       };
       if (form.password) payload.password = form.password;
 
@@ -573,10 +563,9 @@ export const StudentRegistration: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [gradeFilter, setGradeFilter] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
-  const [exportType, setExportType] = useState<StudentCodeType>('qr');
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState('');
   const [showRegister, setShowRegister] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [codeStudent, setCodeStudent] = useState<StudentRecord | null>(null);
   const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
   const [deleteStudent, setDeleteStudent] = useState<StudentRecord | null>(null);
@@ -619,24 +608,6 @@ export const StudentRegistration: React.FC = () => {
     );
   });
 
-  const handleMassExport = async () => {
-    if (isExporting) return;
-    setExportError('');
-    setIsExporting(true);
-    try {
-      await downloadStudentCodeDocument({
-        students: filtered,
-        codeType: exportType,
-        gradeLevel: gradeFilter || undefined,
-        section: sectionFilter || undefined,
-      });
-    } catch (err: any) {
-      setExportError(err?.message || 'The DOCX file could not be generated.');
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
   const handleDeleted = async () => {
     if (!deleteStudent) return;
     await deleteAccount(deleteStudent.uid);
@@ -654,79 +625,45 @@ export const StudentRegistration: React.FC = () => {
             Manage student accounts. IDs and login codes are auto-generated.
           </p>
         </div>
+        <button onClick={() => setShowBulkImport(true)}
+          className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+          <Upload size={15} />Bulk Upload CSV
+        </button>
+        <button onClick={() => setShowExportModal(true)}
+          className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+          <FileDown size={15} />Export ID Codes
+        </button>
         <button onClick={() => setShowRegister(true)}
           className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 bg-purple-700 text-white rounded-lg text-sm font-medium hover:bg-purple-800 transition-colors">
           <UserPlus size={15} />Register Student
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-col xl:flex-row xl:items-end gap-3">
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-gray-900">Mass Export ID Codes</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Creates a compact Word document with each student's name beside the selected code.
-            </p>
-          </div>
-          <div className="grid sm:grid-cols-3 gap-3 flex-[2]">
-            <div>
-              <label className={labelClass}>Grade Level</label>
-              <select
-                value={gradeFilter}
-                onChange={(event) => {
-                  setGradeFilter(event.target.value);
-                  setSectionFilter('');
-                }}
-                className={inputClass}
-              >
-                <option value="">All grade levels</option>
-                {gradeLevels.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Section</label>
-              <select
-                value={sectionFilter}
-                onChange={(event) => setSectionFilter(event.target.value)}
-                className={inputClass}
-              >
-                <option value="">All sections</option>
-                {sections.map((section) => <option key={section} value={section}>{section}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Code Format</label>
-              <select
-                value={exportType}
-                onChange={(event) => setExportType(event.target.value as StudentCodeType)}
-                className={inputClass}
-              >
-                <option value="qr">QR Code</option>
-                <option value="barcode">Code 128 Barcode</option>
-              </select>
-            </div>
-          </div>
-          <button
-            onClick={handleMassExport}
-            disabled={isExporting || filtered.length === 0}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-50"
-          >
-            <FileDown size={15} />
-            {isExporting ? 'Generating DOCX...' : `Export ${filtered.length} to DOCX`}
-          </button>
-        </div>
-        {exportError && <p className="mt-3 text-sm text-red-600">{exportError}</p>}
-      </div>
-
       {/* List */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex gap-3 items-center">
-          <div className="relative flex-1">
+        <div className="p-4 border-b border-gray-100 flex flex-wrap gap-3 items-center">
+          <div className="relative flex-1 min-w-[200px]">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search name, LRN, grade level, section..."
               className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" />
           </div>
+          <select
+            value={gradeFilter}
+            onChange={(event) => { setGradeFilter(event.target.value); setSectionFilter(''); }}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+          >
+            <option value="">All grade levels</option>
+            {gradeLevels.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+          </select>
+          <select
+            value={sectionFilter}
+            onChange={(event) => setSectionFilter(event.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+          >
+            <option value="">All sections</option>
+            {sections.map((section) => <option key={section} value={section}>{section}</option>)}
+          </select>
           <button onClick={loadStudents} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Refresh">
             <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
           </button>
@@ -861,6 +798,23 @@ export const StudentRegistration: React.FC = () => {
         student={deleteStudent}
         onConfirm={handleDeleted}
         onCancel={() => setDeleteStudent(null)}
+      />
+
+      {/* Bulk CSV import */}
+      <BulkStudentImport
+        open={showBulkImport}
+        onClose={() => setShowBulkImport(false)}
+        existingStudents={students}
+        onImported={(created) => {
+          if (created.length > 0) setStudents((p) => [...created, ...p]);
+        }}
+      />
+
+      {/* Export ID codes */}
+      <ExportIdCodesModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        students={students}
       />
     </div>
   );

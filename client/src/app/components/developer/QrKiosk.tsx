@@ -46,22 +46,46 @@ const formatTimeOfDay = (value?: string) => {
   }).format(date);
 };
 
-const formatScanTime = (attendance: AttendanceRecord, scanMode: AttendanceScanMode) => {
+const formatScanDateTime = (attendance: AttendanceRecord, scanMode: AttendanceScanMode) => {
   const recordedAt = scanMode === 'time_out'
     ? attendance.timeOutAt || attendance.lastScanAt
     : attendance.firstScanAt || attendance.lastScanAt;
-  if (!recordedAt) return '-';
+  if (!recordedAt) return { dateLabel: '-', timeLabel: '-' };
 
-  return new Intl.DateTimeFormat('en-US', {
+  const date = new Date(recordedAt);
+  return {
+    dateLabel: new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    }).format(date),
+    timeLabel: new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date),
+  };
+};
+
+const LATE_CUTOFF_MINUTES = 7 * 60 + 1; // 7:01 AM
+
+const getManilaMinutesOfDay = (iso: string) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Manila',
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-    hour12: true,
-  }).format(new Date(recordedAt));
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return hour * 60 + minute;
+};
+
+const isLateTimeIn = (firstScanAt?: string) => {
+  if (!firstScanAt) return false;
+  return getManilaMinutesOfDay(firstScanAt) >= LATE_CUTOFF_MINUTES;
 };
 
 const WelcomeView: React.FC = () => (
@@ -124,86 +148,97 @@ const LoadingView: React.FC = () => (
 const FoundView: React.FC<{
   student: KioskStudent;
   attendance: AttendanceRecord;
-  isFirstScan: boolean;
   scanMode: AttendanceScanMode;
-}> = ({ student, attendance, isFirstScan, scanMode }) => {
+}> = ({ student, attendance, scanMode }) => {
   const initials = `${student.firstName?.[0] ?? ''}${student.lastName?.[0] ?? ''}`.toUpperCase();
   const fullName = student.displayName || [student.firstName, student.lastName].filter(Boolean).join(' ') || '-';
-  const recordedAt = formatScanTime(attendance, scanMode);
+  const { dateLabel, timeLabel } = formatScanDateTime(attendance, scanMode);
   const modeLabel = MODE_LABELS[scanMode];
-  const scanCount = scanMode === 'time_out'
-    ? attendance.timeOutScanCount || attendance.scanCount
-    : attendance.timeInScanCount || attendance.scanCount;
+  const isLate = scanMode === 'time_in' && isLateTimeIn(attendance.firstScanAt);
+  const gradeSection = [attendance.gradeLevel, attendance.section].filter(Boolean).join(' - ');
 
   return (
     <motion.div
       key="found"
-      initial={{ opacity: 0, y: 24 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -24 }}
-      transition={{ type: 'spring', duration: 0.4, bounce: 0.1 }}
-      className="flex h-full w-full items-center justify-center px-6 py-8 md:px-12 lg:px-20"
+      exit={{ opacity: 0, y: -16 }}
+      transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+      className="flex h-full w-full items-center justify-center px-4 py-6 md:px-10 lg:px-16"
     >
-      <div className="w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/20 bg-white/92 shadow-2xl shadow-black/35">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#185C20]/10 px-6 py-5 md:px-8">
+      <div className="w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.06] shadow-2xl shadow-black/50 backdrop-blur-xl">
+        {isLate && (
+          <div className="flex items-center justify-center gap-3 bg-red-600 px-6 py-5">
+            <motion.div
+              animate={{ opacity: [1, 0.55, 1] }}
+              transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
+              className="flex items-center gap-3"
+            >
+              <AlertCircle className="h-8 w-8 flex-shrink-0 text-white" />
+              <p className="font-black uppercase tracking-wide text-white" style={{ fontSize: 'clamp(1.5rem, 3.5vw, 2.5rem)' }}>
+                Late Arrival
+              </p>
+            </motion.div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-8 py-6">
           <div className="flex items-center gap-4">
-            <img src={SCHOOL_LOGO_SRC} alt="MMPNS logo" className="h-14 w-14 rounded-full bg-white object-contain" />
+            <img src={SCHOOL_LOGO_SRC} alt="MMPNS logo" className="h-12 w-12 rounded-full bg-white object-contain p-1" />
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#185C20]/50">Student ID Scan</p>
-              <p className="text-xl font-black text-[#185C20] md:text-2xl">Attendance Recorded</p>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-white/40">Student ID Scan</p>
+              <p className="text-xl font-black text-white md:text-2xl">Attendance Recorded</p>
             </div>
           </div>
-          <span className="rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-700">
-            {isFirstScan ? `${modeLabel} saved` : `${modeLabel} saved - scan ${scanCount}`}
+          <span className={`rounded-full border px-4 py-2 text-sm font-bold ${isLate ? 'border-red-400/30 bg-red-500/15 text-red-300' : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'}`}>
+            {modeLabel} confirmed
           </span>
         </div>
 
-        <div className="grid grid-cols-1 items-center gap-8 p-6 md:p-8 lg:grid-cols-[minmax(220px,320px)_1fr]">
-          <div>
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.22em] text-[#185C20]/45">Photo</p>
-            <div
-              className="mx-auto overflow-hidden rounded-3xl border border-[#185C20]/15 bg-[#185C20]/5 shadow-xl shadow-[#185C20]/10 lg:mx-0"
-              style={{ width: 'min(100%, 320px)', aspectRatio: '1 / 1' }}
-            >
-              {student.photoUrl ? (
-                <img src={student.photoUrl} alt={fullName} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-4 text-[#185C20]/35">
-                  <UserRound className="h-20 w-20" />
-                  <span className="text-5xl font-black">{initials || '-'}</span>
-                </div>
-              )}
-            </div>
+        <div className="grid grid-cols-1 gap-8 p-8 lg:grid-cols-[300px_1fr] lg:p-10">
+          <div
+            className="mx-auto w-full overflow-hidden rounded-2xl border border-white/10 bg-white/5 lg:mx-0"
+            style={{ aspectRatio: '1 / 1', maxWidth: 300 }}
+          >
+            {student.photoUrl ? (
+              <img src={student.photoUrl} alt={fullName} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-white/25">
+                <UserRound className="h-16 w-16" />
+                <span className="text-4xl font-black">{initials || '-'}</span>
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 gap-4">
-            <div className="rounded-2xl border border-[#185C20]/10 bg-[#185C20]/[0.03] p-5">
-              <div className="mb-2 flex items-center gap-2 text-[#185C20]/45">
-                <UserRound size={16} />
-                <p className="text-xs font-bold uppercase tracking-[0.2em]">Full Name</p>
-              </div>
-              <p className="break-words font-black leading-tight text-[#185C20]" style={{ fontSize: 'clamp(2rem, 5vw, 4.5rem)' }}>
+          <div className="flex flex-col gap-6">
+            <div>
+              <p className="break-words font-black leading-tight text-white" style={{ fontSize: 'clamp(2rem, 4.5vw, 3.5rem)' }}>
                 {fullName}
               </p>
+              <p className="mt-1.5 text-lg font-semibold text-white/50">{gradeSection || 'Grade / section unassigned'}</p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-[#185C20]/10 bg-white p-5">
-                <div className="mb-2 flex items-center gap-2 text-[#185C20]/45">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div className={`flex flex-col justify-between rounded-2xl border p-6 ${isLate ? 'border-red-400/30 bg-red-500/10' : 'border-white/10 bg-white/5'}`}>
+                <div className={`flex items-center gap-2 ${isLate ? 'text-red-300' : 'text-white/40'}`}>
                   <Clock3 size={16} />
                   <p className="text-xs font-bold uppercase tracking-[0.2em]">{modeLabel}</p>
                 </div>
-                <p className="text-2xl font-black leading-snug text-[#185C20]">{recordedAt}</p>
+                <p className={`mt-4 font-black leading-none ${isLate ? 'text-red-300' : 'text-white'}`} style={{ fontSize: 'clamp(2.25rem, 5vw, 3.5rem)' }}>
+                  {timeLabel}
+                </p>
+                <p className={`mt-3 text-sm font-semibold ${isLate ? 'text-red-300/70' : 'text-white/35'}`}>{dateLabel}</p>
               </div>
 
-              <div className="rounded-2xl border border-[#185C20]/10 bg-white p-5">
-                <div className="mb-2 flex items-center gap-2 text-[#185C20]/45">
+              <div className="flex flex-col justify-between rounded-2xl border border-white/10 bg-white/5 p-6">
+                <div className="flex items-center gap-2 text-white/40">
                   <Hash size={16} />
                   <p className="text-xs font-bold uppercase tracking-[0.2em]">LRN</p>
                 </div>
-                <p className="break-all font-mono text-3xl font-black leading-tight text-[#185C20]">
+                <p className="mt-4 break-all font-mono font-black leading-none text-white" style={{ fontSize: 'clamp(1.75rem, 4vw, 2.75rem)' }}>
                   {student.lrn || '-'}
                 </p>
+                <p className="mt-3 text-sm font-semibold text-white/35">Learner Reference No.</p>
               </div>
             </div>
           </div>
@@ -256,7 +291,6 @@ export const QrKiosk: React.FC<{
   const [inputValue, setInputValue] = useState('');
   const [student, setStudent] = useState<KioskStudent | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
-  const [isFirstScan, setIsFirstScan] = useState(false);
   const [recordedMode, setRecordedMode] = useState<AttendanceScanMode>(scanMode);
   const [errorMsg, setErrorMsg] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -289,7 +323,6 @@ export const QrKiosk: React.FC<{
       if (thisScan !== scanIdRef.current) return;
       setStudent(res.student);
       setAttendance(res.attendance);
-      setIsFirstScan(res.isFirstScan);
       setRecordedMode(res.scanMode || modeForScan);
       setKioskState('found');
       onRecorded?.();
@@ -374,7 +407,6 @@ export const QrKiosk: React.FC<{
               <FoundView
                 student={student}
                 attendance={attendance}
-                isFirstScan={isFirstScan}
                 scanMode={recordedMode}
               />
             </div>
