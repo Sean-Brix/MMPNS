@@ -241,8 +241,17 @@ export const QrKiosk: React.FC<{
   scanMode: AttendanceScanMode;
   onScanModeChange?: (mode: AttendanceScanMode) => void;
   autoSwitchEnabled?: boolean;
+  timeInAt?: string;
   timeOutAt?: string;
-}> = ({ onClose, onRecorded, scanMode, onScanModeChange, autoSwitchEnabled = false, timeOutAt = '15:00' }) => {
+}> = ({
+  onClose,
+  onRecorded,
+  scanMode,
+  onScanModeChange,
+  autoSwitchEnabled = false,
+  timeInAt = '06:00',
+  timeOutAt = '15:00',
+}) => {
   const [kioskState, setKioskState] = useState<KioskState>('welcome');
   const [inputValue, setInputValue] = useState('');
   const [student, setStudent] = useState<KioskStudent | null>(null);
@@ -341,7 +350,9 @@ export const QrKiosk: React.FC<{
           </div>
           {autoSwitchEnabled && (
             <span className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-white/45">
-              Auto {MODE_LABELS.time_out} {formatTimeOfDay(timeOutAt)}
+              Auto {MODE_LABELS.time_in} {formatTimeOfDay(timeInAt)}
+              {' / '}
+              {MODE_LABELS.time_out} {formatTimeOfDay(timeOutAt)}
             </span>
           )}
           <button

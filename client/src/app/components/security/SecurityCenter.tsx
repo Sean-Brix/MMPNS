@@ -5,8 +5,6 @@ import {
   CheckCircle2,
   RefreshCw,
   ScanLine,
-  Settings,
-  ShieldCheck,
   UserX,
   Users,
 } from 'lucide-react';
@@ -18,17 +16,23 @@ import {
 import { readDatabase, readDatabaseOnline, writeDatabase } from '../../../utils/database';
 import { QrKiosk } from '../developer/QrKiosk';
 
-type SecurityTab = 'overview' | 'kiosk' | 'analytics' | 'attendance' | 'settings';
+export type SecuritySection = 'overview' | 'kiosk' | 'analytics' | 'attendance' | 'settings';
+
+interface SecurityCenterProps {
+  section?: SecuritySection;
+}
 
 interface SecurityKioskSettings {
   scanMode: AttendanceScanMode;
   autoSwitchEnabled: boolean;
+  timeInAt: string;
   timeOutAt: string;
 }
 
 const DEFAULT_SECURITY_KIOSK_SETTINGS: SecurityKioskSettings = {
   scanMode: 'time_in',
   autoSwitchEnabled: false,
+  timeInAt: '06:00',
   timeOutAt: '15:00',
 };
 
@@ -74,8 +78,21 @@ const getManilaCurrentMinutes = () => {
   return (Number(values.hour || 0) * 60) + Number(values.minute || 0);
 };
 
-const getAutomaticScanMode = (settings: SecurityKioskSettings): AttendanceScanMode =>
-  getManilaCurrentMinutes() >= parseTimeToMinutes(settings.timeOutAt) ? 'time_out' : 'time_in';
+const getAutomaticScanMode = (settings: SecurityKioskSettings): AttendanceScanMode => {
+  const currentMinutes = getManilaCurrentMinutes();
+  const timeInMinutes = parseTimeToMinutes(settings.timeInAt);
+  const timeOutMinutes = parseTimeToMinutes(settings.timeOutAt);
+
+  if (timeInMinutes === timeOutMinutes) {
+    return settings.scanMode;
+  }
+
+  if (timeInMinutes < timeOutMinutes) {
+    return currentMinutes >= timeInMinutes && currentMinutes < timeOutMinutes ? 'time_in' : 'time_out';
+  }
+
+  return currentMinutes >= timeInMinutes || currentMinutes < timeOutMinutes ? 'time_in' : 'time_out';
+};
 
 const normalizeScanMode = (value: unknown): AttendanceScanMode =>
   value === 'time_out' ? 'time_out' : 'time_in';
@@ -83,6 +100,9 @@ const normalizeScanMode = (value: unknown): AttendanceScanMode =>
 const normalizeSettings = (value: any): SecurityKioskSettings => ({
   scanMode: normalizeScanMode(value?.scanMode),
   autoSwitchEnabled: Boolean(value?.autoSwitchEnabled),
+  timeInAt: /^\d{2}:\d{2}$/.test(String(value?.timeInAt || ''))
+    ? String(value.timeInAt)
+    : DEFAULT_SECURITY_KIOSK_SETTINGS.timeInAt,
   timeOutAt: /^\d{2}:\d{2}$/.test(String(value?.timeOutAt || ''))
     ? String(value.timeOutAt)
     : DEFAULT_SECURITY_KIOSK_SETTINGS.timeOutAt,
@@ -106,8 +126,7 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
-export const SecurityCenter: React.FC = () => {
-  const [tab, setTab] = useState<SecurityTab>('overview');
+export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analytics' }) => {
   const [selectedDate, setSelectedDate] = useState(getManilaDate());
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -161,7 +180,7 @@ export const SecurityCenter: React.FC = () => {
     syncMode();
     const intervalId = window.setInterval(syncMode, 30000);
     return () => window.clearInterval(intervalId);
-  }, [kioskSettings.autoSwitchEnabled, kioskSettings.timeOutAt]);
+  }, [kioskSettings.autoSwitchEnabled, kioskSettings.timeInAt, kioskSettings.timeOutAt]);
 
   const persistKioskSettings = useCallback((nextSettings: SecurityKioskSettings, nextMode?: AttendanceScanMode) => {
     setKioskSettings(nextSettings);
@@ -214,14 +233,6 @@ export const SecurityCenter: React.FC = () => {
       icon: BarChart3,
       color: 'bg-cyan-50 text-cyan-800',
     },
-  ];
-
-  const tabItems: { id: SecurityTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { id: 'overview', label: 'Overview', icon: ShieldCheck },
-    { id: 'kiosk', label: 'ID Scanning Kiosk', icon: ScanLine },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'attendance', label: 'Attendance Log', icon: CalendarDays },
-    { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   const renderScanModeControl = (tone: 'light' | 'dark' = 'light') => {
@@ -326,7 +337,9 @@ export const SecurityCenter: React.FC = () => {
         {renderScanModeControl()}
         {kioskSettings.autoSwitchEnabled && (
           <p className="text-xs text-gray-400">
-            Automatic switch: {MODE_LABELS.time_out} at {formatTimeOfDay(kioskSettings.timeOutAt)}
+            Automatic switch: {MODE_LABELS.time_in} at {formatTimeOfDay(kioskSettings.timeInAt)}
+            {' / '}
+            {MODE_LABELS.time_out} at {formatTimeOfDay(kioskSettings.timeOutAt)}
           </p>
         )}
       </div>
@@ -355,7 +368,7 @@ export const SecurityCenter: React.FC = () => {
             <h3 className="text-sm font-semibold text-gray-900">Automatic Switch</h3>
             <p className="mt-1 text-xs text-gray-400">
               {kioskSettings.autoSwitchEnabled
-                ? `${MODE_LABELS.time_out} starts at ${formatTimeOfDay(kioskSettings.timeOutAt)}`
+                ? `${MODE_LABELS.time_in} ${formatTimeOfDay(kioskSettings.timeInAt)} / ${MODE_LABELS.time_out} ${formatTimeOfDay(kioskSettings.timeOutAt)}`
                 : 'Manual mode only'}
             </p>
           </div>
@@ -373,7 +386,23 @@ export const SecurityCenter: React.FC = () => {
           </label>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Time in starts</span>
+            <input
+              type="time"
+              value={kioskSettings.timeInAt}
+              onChange={(event) => persistKioskSettings({
+                ...kioskSettings,
+                timeInAt: event.currentTarget.value || DEFAULT_SECURITY_KIOSK_SETTINGS.timeInAt,
+              })}
+              className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
+            />
+            <span className="mt-2 block rounded-lg bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
+              {formatTimeOfDay(kioskSettings.timeInAt)}
+            </span>
+          </label>
+
           <label className="block">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Time out starts</span>
             <input
@@ -385,10 +414,10 @@ export const SecurityCenter: React.FC = () => {
               })}
               className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
             />
+            <span className="mt-2 block rounded-lg bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700">
+              {formatTimeOfDay(kioskSettings.timeOutAt)}
+            </span>
           </label>
-          <div className="rounded-lg bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
-            {formatTimeOfDay(kioskSettings.timeOutAt)}
-          </div>
         </div>
 
         {settingsMessage && (
@@ -503,32 +532,17 @@ export const SecurityCenter: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl overflow-x-auto">
-        {tabItems.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
-              tab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
-          </button>
-        ))}
-      </div>
-
       {error && (
         <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      {tab === 'overview' && renderOverview()}
-      {tab === 'kiosk' && renderKiosk()}
-      {tab === 'analytics' && renderAnalytics()}
-      {tab === 'attendance' && renderAttendance()}
-      {tab === 'settings' && renderSettings()}
+      {section === 'overview' && renderOverview()}
+      {section === 'kiosk' && renderKiosk()}
+      {section === 'analytics' && renderAnalytics()}
+      {section === 'attendance' && renderAttendance()}
+      {section === 'settings' && renderSettings()}
 
       {kioskOpen && (
         <QrKiosk
@@ -540,6 +554,7 @@ export const SecurityCenter: React.FC = () => {
           scanMode={scanMode}
           onScanModeChange={handleScanModeChange}
           autoSwitchEnabled={kioskSettings.autoSwitchEnabled}
+          timeInAt={kioskSettings.timeInAt}
           timeOutAt={kioskSettings.timeOutAt}
         />
       )}

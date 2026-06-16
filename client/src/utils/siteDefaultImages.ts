@@ -27,8 +27,8 @@ export interface SiteDefaultImageDefinition {
 export const SITE_DEFAULT_IMAGES: Record<SiteDefaultImageKey, SiteDefaultImageDefinition> = {
   aboutOrgChart: {
     key: 'aboutOrgChart',
-    localSrc: '/images/about/organizational_chart.jpeg',
-    storagePath: 'site-defaults/about/organizational_chart.jpeg',
+    localSrc: '/images/about/organizational_chart.svg',
+    storagePath: 'site-defaults/about/organizational_chart.svg',
   },
   academicInstitutionalQuality: {
     key: 'academicInstitutionalQuality',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  LayoutDashboard, ShieldCheck, Settings,
+  BarChart3, CalendarDays, LayoutDashboard, ScanLine, ShieldCheck, Settings,
   Users, Activity, Newspaper, GraduationCap,
   Terminal, Database, AlertTriangle, Wrench,
 } from 'lucide-react';
@@ -44,7 +44,11 @@ const SUPERADMIN_MENU: SidebarItem[] = [
 ];
 
 const SECURITY_MENU: SidebarItem[] = [
-  { id: 'security', label: 'Security & Attendance', icon: ShieldCheck },
+  { id: 'security-analytics',  label: 'Analytics',           icon: BarChart3 },
+  { id: 'security-overview',   label: 'Overview',            icon: ShieldCheck },
+  { id: 'security-kiosk',      label: 'ID Scanning Kiosk',   icon: ScanLine },
+  { id: 'security-attendance', label: 'Attendance Log',      icon: CalendarDays },
+  { id: 'security-settings',   label: 'Settings',            icon: Settings },
 ];
 
 // ─── Dashboards ───────────────────────────────────────────────────────────────
@@ -218,7 +222,7 @@ export const AdminPortal: React.FC = () => {
 
     if (session) {
       setIsAuthenticated(true);
-      setActiveSection(session.role === 'security' ? 'security' : 'dashboard');
+      setActiveSection(session.role === 'security' ? 'security-analytics' : 'dashboard');
       setUser({
         role: session.role,
         username: session.username,
@@ -250,7 +254,7 @@ export const AdminPortal: React.FC = () => {
           } else {
             setUser(result.user);
             setIsAuthenticated(true);
-            setActiveSection(result.role === 'security' ? 'security' : 'dashboard');
+            setActiveSection(result.role === 'security' ? 'security-analytics' : 'dashboard');
           }
         }}
         accentColor="#1e293b"
@@ -269,13 +273,18 @@ export const AdminPortal: React.FC = () => {
       case 'faculty':   return <FacultyManager />;
       case 'alumni':    return <AlumniManager />;
       case 'news':      return <PlaceholderSection title="News & Pages" icon={Newspaper} />;
-      case 'security':  return <SecurityCenter />;
+      case 'security':  return <SecurityCenter section="analytics" />;
+      case 'security-analytics':  return <SecurityCenter section="analytics" />;
+      case 'security-overview':   return <SecurityCenter section="overview" />;
+      case 'security-kiosk':      return <SecurityCenter section="kiosk" />;
+      case 'security-attendance': return <SecurityCenter section="attendance" />;
+      case 'security-settings':   return <SecurityCenter section="settings" />;
       case 'settings':  return <PlaceholderSection title="School Settings" icon={Settings} />;
       // superadmin-only
       case 'developer': return isSuperadmin ? <DeveloperTools /> : <PlaceholderSection title="Developer Tools" icon={Terminal} />;
       case 'database':  return isSuperadmin ? <PlaceholderSection title="Database Management" icon={Database} /> : null;
       default:
-        if (isSecurity) return <SecurityCenter />;
+        if (isSecurity) return <SecurityCenter section="analytics" />;
         return isSuperadmin ? <SuperadminOverview user={user} /> : <AdminOverview user={user} />;
     }
   };
