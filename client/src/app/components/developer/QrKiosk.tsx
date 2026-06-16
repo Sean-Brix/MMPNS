@@ -4,6 +4,7 @@ import { AlertCircle, Clock3, Hash, ScanLine, UserRound, Wifi, X } from 'lucide-
 import {
   recordAttendanceScan,
   type AttendanceRecord,
+  type AttendanceScanMode,
 } from '../../../utils/apiClient';
 
 const SCHOOL_LOGO_SRC = '/images/brand/logo.png';
@@ -29,9 +30,27 @@ interface KioskStudent {
 
 type KioskState = 'welcome' | 'loading' | 'found' | 'not_found' | 'invalid';
 
-const formatTimeIn = (attendance: AttendanceRecord) => {
-  const timeIn = attendance.firstScanAt || attendance.lastScanAt;
-  if (!timeIn) return '-';
+const MODE_LABELS: Record<AttendanceScanMode, string> = {
+  time_in: 'Time in',
+  time_out: 'Time out',
+};
+
+const formatTimeOfDay = (value?: string) => {
+  const [hourValue, minuteValue] = String(value || '15:00').split(':').map(Number);
+  const date = new Date();
+  date.setHours(Number.isFinite(hourValue) ? hourValue : 15, Number.isFinite(minuteValue) ? minuteValue : 0, 0, 0);
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+};
+
+const formatScanTime = (attendance: AttendanceRecord, scanMode: AttendanceScanMode) => {
+  const recordedAt = scanMode === 'time_out'
+    ? attendance.timeOutAt || attendance.lastScanAt
+    : attendance.firstScanAt || attendance.lastScanAt;
+  if (!recordedAt) return '-';
 
   return new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Manila',
@@ -42,7 +61,7 @@ const formatTimeIn = (attendance: AttendanceRecord) => {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-  }).format(new Date(timeIn));
+  }).format(new Date(recordedAt));
 };
 
 const WelcomeView: React.FC = () => (
@@ -106,10 +125,15 @@ const FoundView: React.FC<{
   student: KioskStudent;
   attendance: AttendanceRecord;
   isFirstScan: boolean;
-}> = ({ student, attendance, isFirstScan }) => {
+  scanMode: AttendanceScanMode;
+}> = ({ student, attendance, isFirstScan, scanMode }) => {
   const initials = `${student.firstName?.[0] ?? ''}${student.lastName?.[0] ?? ''}`.toUpperCase();
   const fullName = student.displayName || [student.firstName, student.lastName].filter(Boolean).join(' ') || '-';
-  const timeIn = formatTimeIn(attendance);
+  const recordedAt = formatScanTime(attendance, scanMode);
+  const modeLabel = MODE_LABELS[scanMode];
+  const scanCount = scanMode === 'time_out'
+    ? attendance.timeOutScanCount || attendance.scanCount
+    : attendance.timeInScanCount || attendance.scanCount;
 
   return (
     <motion.div
@@ -130,7 +154,7 @@ const FoundView: React.FC<{
             </div>
           </div>
           <span className="rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-700">
-            {isFirstScan ? 'Time in saved' : `Time in already saved - scan ${attendance.scanCount}`}
+            {isFirstScan ? `${modeLabel} saved` : `${modeLabel} saved - scan ${scanCount}`}
           </span>
         </div>
 
@@ -167,9 +191,9 @@ const FoundView: React.FC<{
               <div className="rounded-2xl border border-[#185C20]/10 bg-white p-5">
                 <div className="mb-2 flex items-center gap-2 text-[#185C20]/45">
                   <Clock3 size={16} />
-                  <p className="text-xs font-bold uppercase tracking-[0.2em]">Time In</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.2em]">{modeLabel}</p>
                 </div>
-                <p className="text-2xl font-black leading-snug text-[#185C20]">{timeIn}</p>
+                <p className="text-2xl font-black leading-snug text-[#185C20]">{recordedAt}</p>
               </div>
 
               <div className="rounded-2xl border border-[#185C20]/10 bg-white p-5">
@@ -214,12 +238,17 @@ const ErrorView: React.FC<{ type: 'not_found' | 'invalid'; message: string }> = 
 export const QrKiosk: React.FC<{
   onClose: () => void;
   onRecorded?: () => void;
-}> = ({ onClose, onRecorded }) => {
+  scanMode: AttendanceScanMode;
+  onScanModeChange?: (mode: AttendanceScanMode) => void;
+  autoSwitchEnabled?: boolean;
+  timeOutAt?: string;
+}> = ({ onClose, onRecorded, scanMode, onScanModeChange, autoSwitchEnabled = false, timeOutAt = '15:00' }) => {
   const [kioskState, setKioskState] = useState<KioskState>('welcome');
   const [inputValue, setInputValue] = useState('');
   const [student, setStudent] = useState<KioskStudent | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
   const [isFirstScan, setIsFirstScan] = useState(false);
+  const [recordedMode, setRecordedMode] = useState<AttendanceScanMode>(scanMode);
   const [errorMsg, setErrorMsg] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const scanIdRef = useRef(0);
@@ -243,14 +272,16 @@ export const QrKiosk: React.FC<{
     }
 
     const thisScan = ++scanIdRef.current;
+    const modeForScan = scanMode;
     setKioskState('loading');
 
     try {
-      const res = await recordAttendanceScan(trimmed);
+      const res = await recordAttendanceScan(trimmed, modeForScan);
       if (thisScan !== scanIdRef.current) return;
       setStudent(res.student);
       setAttendance(res.attendance);
       setIsFirstScan(res.isFirstScan);
+      setRecordedMode(res.scanMode || modeForScan);
       setKioskState('found');
       onRecorded?.();
     } catch (err: any) {
@@ -263,7 +294,7 @@ export const QrKiosk: React.FC<{
         setKioskState('invalid');
       }
     }
-  }, [onRecorded]);
+  }, [onRecorded, scanMode]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -280,7 +311,7 @@ export const QrKiosk: React.FC<{
       style={{ backgroundImage: `linear-gradient(rgba(7, 9, 26, 0.72), rgba(7, 9, 26, 0.78)), url(${KIOSK_BACKGROUND_SRC})` }}
       onClick={() => inputRef.current?.focus()}
     >
-      <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 bg-black/20 px-8 py-5 backdrop-blur-sm">
+      <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-4 border-b border-white/10 bg-black/20 px-8 py-5 backdrop-blur-sm">
         <div className="flex items-center gap-4">
           <img src={SCHOOL_LOGO_SRC} alt="MMPNS logo" className="h-12 w-12 rounded-full bg-white object-contain p-1.5 shadow-lg" />
           <div>
@@ -288,13 +319,39 @@ export const QrKiosk: React.FC<{
             <p className="text-xs tracking-wide text-white/40">Scan student ID to record attendance</p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2.5 text-sm text-white/60 transition-colors hover:border-white/30 hover:text-white"
-        >
-          <X size={15} />
-          Exit Kiosk
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className="flex rounded-2xl border border-white/15 bg-white/10 p-1">
+            {(['time_in', 'time_out'] as AttendanceScanMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onScanModeChange?.(mode);
+                }}
+                className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
+                  scanMode === mode
+                    ? 'bg-white text-[#185C20] shadow-lg shadow-black/20'
+                    : 'text-white/55 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                {MODE_LABELS[mode]}
+              </button>
+            ))}
+          </div>
+          {autoSwitchEnabled && (
+            <span className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-white/45">
+              Auto {MODE_LABELS.time_out} {formatTimeOfDay(timeOutAt)}
+            </span>
+          )}
+          <button
+            onClick={onClose}
+            className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2.5 text-sm text-white/60 transition-colors hover:border-white/30 hover:text-white"
+          >
+            <X size={15} />
+            Exit Kiosk
+          </button>
+        </div>
       </div>
 
       <div className="relative flex-1 overflow-hidden">
@@ -303,7 +360,12 @@ export const QrKiosk: React.FC<{
           {kioskState === 'loading' && <div className="absolute inset-0 flex items-center justify-center"><LoadingView /></div>}
           {kioskState === 'found' && student && attendance && (
             <div className="absolute inset-0 flex items-center">
-              <FoundView student={student} attendance={attendance} isFirstScan={isFirstScan} />
+              <FoundView
+                student={student}
+                attendance={attendance}
+                isFirstScan={isFirstScan}
+                scanMode={recordedMode}
+              />
             </div>
           )}
           {(kioskState === 'not_found' || kioskState === 'invalid') && (

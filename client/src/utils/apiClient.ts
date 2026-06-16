@@ -166,6 +166,8 @@ export const uploadStudentPhoto = async (uid: string, file: File): Promise<strin
   return result.url;
 };
 
+export type AttendanceScanMode = 'time_in' | 'time_out';
+
 export interface AttendanceRecord {
   id: string;
   date: string;
@@ -177,7 +179,11 @@ export interface AttendanceRecord {
   status: 'present';
   firstScanAt: string;
   lastScanAt: string;
+  timeOutAt?: string | null;
   scanCount: number;
+  timeInScanCount?: number;
+  timeOutScanCount?: number;
+  lastScanMode?: AttendanceScanMode;
 }
 
 export interface AttendanceSummary {
@@ -190,11 +196,16 @@ export interface AttendanceSummary {
   records: AttendanceRecord[];
 }
 
-export const recordAttendanceScan = (systemId: string) =>
-  apiFetch<{ student: any; attendance: AttendanceRecord; isFirstScan: boolean }>('/attendance/scan', {
+export const recordAttendanceScan = (systemId: string, scanMode: AttendanceScanMode = 'time_in') =>
+  apiFetch<{
+    student: any;
+    attendance: AttendanceRecord;
+    isFirstScan: boolean;
+    scanMode: AttendanceScanMode;
+  }>('/attendance/scan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ systemId }),
+    body: JSON.stringify({ systemId, scanMode }),
   });
 
 export const getAttendanceSummary = (date?: string) =>

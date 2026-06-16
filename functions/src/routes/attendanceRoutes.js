@@ -18,12 +18,16 @@ router.post(
     async (req, res, next) => {
       try {
         const systemId = String((req.body && req.body.systemId) || "").trim();
+        const scanMode = String((req.body && req.body.scanMode) || "time_in")
+            .trim()
+            .toLowerCase();
         if (!systemId) {
           throw badRequest("System ID is required.");
         }
 
         res.json(await recordAttendanceScan({
           systemId,
+          scanMode,
           recordedBy: req.auth.uid,
         }));
       } catch (error) {

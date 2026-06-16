@@ -7,6 +7,7 @@ const {badRequest, notFound} = require("../httpError");
 
 const ATTENDANCE_COLLECTION = "attendance";
 const USERS_COLLECTION = "users";
+const VALID_SCAN_MODES = new Set(["time_in", "time_out"]);
 
 const getManilaDateKey = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -21,7 +22,16 @@ const getManilaDateKey = (date = new Date()) => {
   return `${values.year}-${values.month}-${values.day}`;
 };
 
-const recordAttendanceScan = async ({systemId, recordedBy}) => {
+const normalizeScanMode = (scanMode) => {
+  const mode = String(scanMode || "time_in").trim().toLowerCase();
+  if (!VALID_SCAN_MODES.has(mode)) {
+    throw badRequest("Scan mode must be either time_in or time_out.");
+  }
+  return mode;
+};
+
+const recordAttendanceScan = async ({systemId, recordedBy, scanMode}) => {
+  const mode = normalizeScanMode(scanMode);
   const student = await getStudentBySystemId(systemId);
   if (!student) {
     throw notFound("Student not found.");
@@ -51,7 +61,11 @@ const recordAttendanceScan = async ({systemId, recordedBy}) => {
         status: "present",
         firstScanAt: now,
         lastScanAt: now,
+        timeOutAt: mode === "time_out" ? now : null,
         scanCount: 1,
+        timeInScanCount: mode === "time_in" ? 1 : 0,
+        timeOutScanCount: mode === "time_out" ? 1 : 0,
+        lastScanMode: mode,
         recordedBy,
       };
       transaction.set(attendanceRef, created);
@@ -63,11 +77,24 @@ const recordAttendanceScan = async ({systemId, recordedBy}) => {
       ...current,
       lastScanAt: now,
       scanCount: Number(current.scanCount || 1) + 1,
+      lastScanMode: mode,
       recordedBy,
     };
+    if (mode === "time_in") {
+      updated.firstScanAt = current.firstScanAt || now;
+      updated.timeInScanCount = Number(current.timeInScanCount || 0) + 1;
+    } else {
+      updated.timeOutAt = now;
+      updated.timeOutScanCount = Number(current.timeOutScanCount || 0) + 1;
+    }
     transaction.update(attendanceRef, {
+      firstScanAt: updated.firstScanAt || now,
       lastScanAt: updated.lastScanAt,
+      timeOutAt: updated.timeOutAt || null,
       scanCount: updated.scanCount,
+      timeInScanCount: updated.timeInScanCount || 0,
+      timeOutScanCount: updated.timeOutScanCount || 0,
+      lastScanMode: updated.lastScanMode,
       recordedBy,
     });
     return updated;
@@ -77,6 +104,7 @@ const recordAttendanceScan = async ({systemId, recordedBy}) => {
     student: stripSensitiveFields(student),
     attendance,
     isFirstScan: attendance.scanCount === 1,
+    scanMode: mode,
   };
 };
 

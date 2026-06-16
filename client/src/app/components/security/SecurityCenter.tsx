@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   RefreshCw,
   ScanLine,
+  Settings,
   ShieldCheck,
   UserX,
   Users,
@@ -12,10 +13,29 @@ import {
 import {
   getAttendanceSummary,
   type AttendanceSummary,
+  type AttendanceScanMode,
 } from '../../../utils/apiClient';
+import { readDatabase, readDatabaseOnline, writeDatabase } from '../../../utils/database';
 import { QrKiosk } from '../developer/QrKiosk';
 
-type SecurityTab = 'overview' | 'kiosk' | 'analytics' | 'attendance';
+type SecurityTab = 'overview' | 'kiosk' | 'analytics' | 'attendance' | 'settings';
+
+interface SecurityKioskSettings {
+  scanMode: AttendanceScanMode;
+  autoSwitchEnabled: boolean;
+  timeOutAt: string;
+}
+
+const DEFAULT_SECURITY_KIOSK_SETTINGS: SecurityKioskSettings = {
+  scanMode: 'time_in',
+  autoSwitchEnabled: false,
+  timeOutAt: '15:00',
+};
+
+const MODE_LABELS: Record<AttendanceScanMode, string> = {
+  time_in: 'Time in',
+  time_out: 'Time out',
+};
 
 const getManilaDate = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -28,12 +48,56 @@ const getManilaDate = () => {
   return `${values.year}-${values.month}-${values.day}`;
 };
 
-const formatTime = (value: string) =>
-  new Date(value).toLocaleTimeString('en-PH', {
+const formatTime = (value?: string | null) =>
+  value ? new Date(value).toLocaleTimeString('en-PH', {
     timeZone: 'Asia/Manila',
     hour: 'numeric',
     minute: '2-digit',
-  });
+  }) : '-';
+
+const parseTimeToMinutes = (value: string) => {
+  const [hourValue, minuteValue] = String(value || '').split(':').map(Number);
+  if (!Number.isFinite(hourValue) || !Number.isFinite(minuteValue)) {
+    return 15 * 60;
+  }
+  return (hourValue * 60) + minuteValue;
+};
+
+const getManilaCurrentMinutes = () => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return (Number(values.hour || 0) * 60) + Number(values.minute || 0);
+};
+
+const getAutomaticScanMode = (settings: SecurityKioskSettings): AttendanceScanMode =>
+  getManilaCurrentMinutes() >= parseTimeToMinutes(settings.timeOutAt) ? 'time_out' : 'time_in';
+
+const normalizeScanMode = (value: unknown): AttendanceScanMode =>
+  value === 'time_out' ? 'time_out' : 'time_in';
+
+const normalizeSettings = (value: any): SecurityKioskSettings => ({
+  scanMode: normalizeScanMode(value?.scanMode),
+  autoSwitchEnabled: Boolean(value?.autoSwitchEnabled),
+  timeOutAt: /^\d{2}:\d{2}$/.test(String(value?.timeOutAt || ''))
+    ? String(value.timeOutAt)
+    : DEFAULT_SECURITY_KIOSK_SETTINGS.timeOutAt,
+});
+
+const formatTimeOfDay = (value: string) => {
+  const [hourValue, minuteValue] = value.split(':').map(Number);
+  const date = new Date();
+  date.setHours(hourValue, minuteValue, 0, 0);
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+};
 
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   <div className="py-12 text-center">
@@ -49,6 +113,9 @@ export const SecurityCenter: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [kioskOpen, setKioskOpen] = useState(false);
+  const [kioskSettings, setKioskSettings] = useState<SecurityKioskSettings>(DEFAULT_SECURITY_KIOSK_SETTINGS);
+  const [scanMode, setScanMode] = useState<AttendanceScanMode>(DEFAULT_SECURITY_KIOSK_SETTINGS.scanMode);
+  const [settingsMessage, setSettingsMessage] = useState('');
 
   const loadSummary = useCallback(async () => {
     setIsLoading(true);
@@ -65,6 +132,56 @@ export const SecurityCenter: React.FC = () => {
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void readDatabaseOnline<any>('settings')
+      .then((settings) => {
+        if (cancelled) return;
+        const nextSettings = normalizeSettings(settings?.securityKiosk);
+        setKioskSettings(nextSettings);
+        setScanMode(nextSettings.autoSwitchEnabled ? getAutomaticScanMode(nextSettings) : nextSettings.scanMode);
+      })
+      .catch(() => {
+        const settings = readDatabase<any>('settings');
+        const nextSettings = normalizeSettings(settings?.securityKiosk);
+        setKioskSettings(nextSettings);
+        setScanMode(nextSettings.autoSwitchEnabled ? getAutomaticScanMode(nextSettings) : nextSettings.scanMode);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!kioskSettings.autoSwitchEnabled) return undefined;
+
+    const syncMode = () => setScanMode(getAutomaticScanMode(kioskSettings));
+    syncMode();
+    const intervalId = window.setInterval(syncMode, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [kioskSettings.autoSwitchEnabled, kioskSettings.timeOutAt]);
+
+  const persistKioskSettings = useCallback((nextSettings: SecurityKioskSettings, nextMode?: AttendanceScanMode) => {
+    setKioskSettings(nextSettings);
+    setScanMode(nextMode || (nextSettings.autoSwitchEnabled ? getAutomaticScanMode(nextSettings) : nextSettings.scanMode));
+    const currentSettings = readDatabase<any>('settings') || {};
+    writeDatabase('settings', {
+      ...currentSettings,
+      securityKiosk: nextSettings,
+    });
+    setSettingsMessage('Security settings saved.');
+    window.setTimeout(() => setSettingsMessage(''), 2000);
+  }, []);
+
+  const handleScanModeChange = useCallback((mode: AttendanceScanMode) => {
+    const nextSettings = {
+      ...kioskSettings,
+      scanMode: mode,
+    };
+    persistKioskSettings(nextSettings, mode);
+  }, [kioskSettings, persistKioskSettings]);
 
   const gradeRows = useMemo(
     () => Object.entries(summary?.byGrade || {}).sort(([a], [b]) => a.localeCompare(b)),
@@ -104,7 +221,34 @@ export const SecurityCenter: React.FC = () => {
     { id: 'kiosk', label: 'ID Scanning Kiosk', icon: ScanLine },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'attendance', label: 'Attendance Log', icon: CalendarDays },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ];
+
+  const renderScanModeControl = (tone: 'light' | 'dark' = 'light') => {
+    const isDark = tone === 'dark';
+    return (
+      <div className={`inline-flex rounded-xl p-1 ${isDark ? 'bg-white/10' : 'bg-gray-100'}`}>
+        {(['time_in', 'time_out'] as AttendanceScanMode[]).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => handleScanModeChange(mode)}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              scanMode === mode
+                ? isDark
+                  ? 'bg-white text-cyan-950'
+                  : 'bg-white text-gray-900 shadow-sm'
+                : isDark
+                  ? 'text-white/55 hover:text-white'
+                  : 'text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            {MODE_LABELS[mode]}
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   const renderStats = () => (
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
@@ -130,8 +274,14 @@ export const SecurityCenter: React.FC = () => {
           </div>
           <h3 className="text-lg font-semibold">Student ID Scanning Kiosk</h3>
           <p className="text-sm text-white/60 mt-1 max-w-xl">
-            Launch the full-screen scanner. Every valid scan records the student as present for the selected school day.
+            Launch the full-screen scanner for student time in and time out.
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            {renderScanModeControl('dark')}
+            <span className="text-xs font-semibold text-white/45">
+              Current mode: {MODE_LABELS[scanMode]}
+            </span>
+          </div>
           <button
             onClick={() => setKioskOpen(true)}
             className="mt-5 px-5 py-2.5 rounded-lg bg-white text-cyan-950 text-sm font-semibold hover:bg-cyan-50"
@@ -172,12 +322,81 @@ export const SecurityCenter: React.FC = () => {
       <p className="text-sm text-gray-500 mt-2 max-w-lg mx-auto">
         Supports QR and Code 128 barcode scanners that type the student system ID and press Enter.
       </p>
+      <div className="mt-5 flex flex-col items-center gap-2">
+        {renderScanModeControl()}
+        {kioskSettings.autoSwitchEnabled && (
+          <p className="text-xs text-gray-400">
+            Automatic switch: {MODE_LABELS.time_out} at {formatTimeOfDay(kioskSettings.timeOutAt)}
+          </p>
+        )}
+      </div>
       <button
         onClick={() => setKioskOpen(true)}
         className="mt-6 px-6 py-3 rounded-xl bg-cyan-950 text-white text-sm font-semibold hover:bg-cyan-900"
       >
         Open Full-Screen Kiosk
       </button>
+    </div>
+  );
+
+  const renderSettings = () => (
+    <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 className="text-sm font-semibold text-gray-900">Kiosk Mode</h3>
+        <p className="mt-1 text-xs text-gray-400">Current scan mode: {MODE_LABELS[scanMode]}</p>
+        <div className="mt-4">
+          {renderScanModeControl()}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Automatic Switch</h3>
+            <p className="mt-1 text-xs text-gray-400">
+              {kioskSettings.autoSwitchEnabled
+                ? `${MODE_LABELS.time_out} starts at ${formatTimeOfDay(kioskSettings.timeOutAt)}`
+                : 'Manual mode only'}
+            </p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-gray-700">
+            <input
+              type="checkbox"
+              checked={kioskSettings.autoSwitchEnabled}
+              onChange={(event) => persistKioskSettings({
+                ...kioskSettings,
+                autoSwitchEnabled: event.currentTarget.checked,
+              })}
+              className="h-4 w-4 rounded border-gray-300 text-cyan-900 focus:ring-cyan-900"
+            />
+            Enabled
+          </label>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Time out starts</span>
+            <input
+              type="time"
+              value={kioskSettings.timeOutAt}
+              onChange={(event) => persistKioskSettings({
+                ...kioskSettings,
+                timeOutAt: event.currentTarget.value || DEFAULT_SECURITY_KIOSK_SETTINGS.timeOutAt,
+              })}
+              className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
+            />
+          </label>
+          <div className="rounded-lg bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+            {formatTimeOfDay(kioskSettings.timeOutAt)}
+          </div>
+        </div>
+
+        {settingsMessage && (
+          <p className="mt-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700">
+            {settingsMessage}
+          </p>
+        )}
+      </div>
     </div>
   );
 
@@ -231,7 +450,7 @@ export const SecurityCenter: React.FC = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['Student', 'Grade & Section', 'First Scan', 'Last Scan', 'Scans', 'Status'].map((heading) => (
+                {['Student', 'Grade & Section', 'Time In', 'Time Out', 'Scans', 'Status'].map((heading) => (
                   <th key={heading} className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-gray-400">
                     {heading}
                   </th>
@@ -246,12 +465,14 @@ export const SecurityCenter: React.FC = () => {
                     {[record.gradeLevel, record.section].filter(Boolean).join(' - ') || 'Unassigned'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{formatTime(record.firstScanAt)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{formatTime(record.lastScanAt)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{formatTime(record.timeOutAt)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{record.scanCount}</td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center gap-1 text-xs text-green-700">
+                    <span className={`inline-flex items-center gap-1 text-xs ${
+                      record.timeOutAt ? 'text-cyan-700' : 'text-green-700'
+                    }`}>
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      Present
+                      {record.timeOutAt ? 'Timed out' : 'Present'}
                     </span>
                   </td>
                 </tr>
@@ -307,6 +528,7 @@ export const SecurityCenter: React.FC = () => {
       {tab === 'kiosk' && renderKiosk()}
       {tab === 'analytics' && renderAnalytics()}
       {tab === 'attendance' && renderAttendance()}
+      {tab === 'settings' && renderSettings()}
 
       {kioskOpen && (
         <QrKiosk
@@ -315,6 +537,10 @@ export const SecurityCenter: React.FC = () => {
             void loadSummary();
           }}
           onRecorded={() => void loadSummary()}
+          scanMode={scanMode}
+          onScanModeChange={handleScanModeChange}
+          autoSwitchEnabled={kioskSettings.autoSwitchEnabled}
+          timeOutAt={kioskSettings.timeOutAt}
         />
       )}
     </div>
