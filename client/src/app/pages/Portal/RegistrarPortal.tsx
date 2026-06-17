@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, UserPlus, Users, ShieldCheck,
-  FileText, BarChart3, ClipboardList,
+  FileText, BarChart3, ClipboardList, CalendarDays,
 } from 'lucide-react';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { AccountManagement } from '../../components/AccountManagement';
 import { StudentRegistration } from '../../components/registrar/StudentRegistration';
+import { SecurityCenter } from '../../components/security/SecurityCenter';
 import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
 import { useNavigate } from 'react-router';
@@ -14,6 +15,7 @@ const MENU_ITEMS: SidebarItem[] = [
   { id: 'dashboard',    label: 'Dashboard',           icon: LayoutDashboard },
   { id: 'registrations',label: 'Student Registrations', icon: ClipboardList },
   { id: 'accounts',     label: 'Account Management',  icon: ShieldCheck },
+  { id: 'attendance',   label: 'Attendance Log',      icon: CalendarDays },
   { id: 'records',      label: 'Records',             icon: FileText },
 ];
 
@@ -94,6 +96,7 @@ export const RegistrarPortal: React.FC = () => {
     switch (activeSection) {
       case 'registrations': return <StudentRegistration />;
       case 'accounts':      return <AccountManagement callerRole="registrar" />;
+      case 'attendance':    return <SecurityCenter section="attendance" />;
       case 'records':
         return (
           <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">

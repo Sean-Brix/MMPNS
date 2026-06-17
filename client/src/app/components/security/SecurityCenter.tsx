@@ -1,18 +1,29 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
+  CheckCircle,
+  Circle,
   RefreshCw,
+  RotateCw,
   ScanLine,
   UserX,
   Users,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import {
   getAttendanceSummary,
+  getLocalSyncStatus,
+  triggerManualSync,
+  pingLocalServer,
   type AttendanceSummary,
   type AttendanceScanMode,
+  type LocalSyncStatus,
 } from '../../../utils/apiClient';
+import { isAdminRole, getCurrentRole } from '../../../utils/auth';
 import { readDatabase, readDatabaseOnline, writeDatabase } from '../../../utils/database';
 import { QrKiosk } from '../developer/QrKiosk';
 
@@ -135,6 +146,9 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
   const [kioskSettings, setKioskSettings] = useState<SecurityKioskSettings>(DEFAULT_SECURITY_KIOSK_SETTINGS);
   const [scanMode, setScanMode] = useState<AttendanceScanMode>(DEFAULT_SECURITY_KIOSK_SETTINGS.scanMode);
   const [settingsMessage, setSettingsMessage] = useState('');
+  const [syncStatus, setSyncStatus] = useState<LocalSyncStatus | null>(null);
+  const [localServerOnline, setLocalServerOnline] = useState(false);
+  const canSync = isAdminRole() || getCurrentRole() === 'security';
 
   const loadSummary = useCallback(async () => {
     setIsLoading(true);
@@ -151,6 +165,22 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
+
+  const loadSyncStatus = useCallback(async () => {
+    const online = await pingLocalServer();
+    setLocalServerOnline(online);
+    if (online) {
+      try {
+        setSyncStatus(await getLocalSyncStatus());
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSyncStatus();
+    const id = window.setInterval(() => void loadSyncStatus(), 5000);
+    return () => window.clearInterval(id);
+  }, [loadSyncStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,6 +223,30 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
     setSettingsMessage('Security settings saved.');
     window.setTimeout(() => setSettingsMessage(''), 2000);
   }, []);
+
+  const handleManualSync = useCallback(async () => {
+    if (syncStatus?.isSyncing) return;
+    try {
+      await triggerManualSync();
+      void loadSyncStatus();
+    } catch { /* ignore */ }
+  }, [syncStatus, loadSyncStatus]);
+
+  // Auto-reload cloud attendance when a sync finishes
+  const wasSyncing = useRef(false);
+  useEffect(() => {
+    if (wasSyncing.current && syncStatus && !syncStatus.isSyncing) {
+      void loadSummary();
+    }
+    wasSyncing.current = syncStatus?.isSyncing ?? false;
+  }, [syncStatus?.isSyncing, loadSummary]);
+
+  const handleSyncAndRefresh = useCallback(async () => {
+    if (localServerOnline && !syncStatus?.isSyncing) {
+      try { await triggerManualSync(); } catch { /* ignore */ }
+    }
+    void loadSummary();
+  }, [localServerOnline, syncStatus?.isSyncing, loadSummary]);
 
   const handleScanModeChange = useCallback((mode: AttendanceScanMode) => {
     const nextSettings = {
@@ -275,9 +329,105 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
     </div>
   );
 
+  const formatSyncTime = (iso: string | null) => {
+    if (!iso) return 'Never';
+    return new Intl.DateTimeFormat('en-PH', {
+      timeZone: 'Asia/Manila',
+      month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    }).format(new Date(iso));
+  };
+
+  const renderSyncCard = () => (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${localServerOnline ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+            {localServerOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Local Server Sync</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {localServerOnline ? (
+                <span className="text-blue-600">Offline mode active</span>
+              ) : (
+                <span>Local server not detected</span>
+              )}
+            </p>
+          </div>
+        </div>
+        {canSync && localServerOnline && (
+          <button
+            onClick={handleManualSync}
+            disabled={syncStatus?.isSyncing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            <RotateCw className={`w-3.5 h-3.5 ${syncStatus?.isSyncing ? 'animate-spin' : ''}`} />
+            {syncStatus?.isSyncing ? 'Syncing...' : 'Sync Now'}
+          </button>
+        )}
+      </div>
+
+      {localServerOnline && syncStatus && (
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="rounded-lg bg-gray-50 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Last Synced</p>
+            <p className="mt-1 text-sm font-semibold text-gray-700">{formatSyncTime(syncStatus.lastSynced)}</p>
+          </div>
+          <div className="rounded-lg bg-gray-50 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Pending Logs</p>
+            <p className={`mt-1 text-sm font-semibold ${syncStatus.pendingLogs > 0 ? 'text-amber-600' : 'text-gray-700'}`}>
+              {syncStatus.pendingLogs}
+            </p>
+          </div>
+          {syncStatus.lastError && (
+            <div className="rounded-lg bg-red-50 px-3 py-2.5 col-span-2 sm:col-span-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-red-400">Last Error</p>
+              <p className="mt-1 text-xs font-medium text-red-600 truncate">{syncStatus.lastError}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {syncStatus?.isSyncing && syncStatus.syncSteps.length > 0 && (
+        <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+          <p className="text-xs font-semibold text-blue-700 mb-2">Sync in progress</p>
+          <ul className="space-y-1">
+            <AnimatePresence initial={false}>
+              {syncStatus.syncSteps.map((step, i) => (
+                <motion.li
+                  key={i}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex items-center gap-2 text-xs text-blue-800"
+                >
+                  {i < syncStatus.syncSteps.length - 1 ? (
+                    <CheckCircle className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                  ) : (
+                    <Circle className="w-3 h-3 text-blue-400 flex-shrink-0 animate-pulse" />
+                  )}
+                  {step}
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </ul>
+        </div>
+      )}
+
+      {!localServerOnline && (
+        <p className="mt-3 text-xs text-gray-400">
+          Install and start the local server to enable offline kiosk mode.
+          Set <code className="bg-gray-100 px-1 rounded">VITE_LOCAL_SERVER_URL</code> if it runs on a different port.
+        </p>
+      )}
+    </div>
+  );
+
   const renderOverview = () => (
     <div className="space-y-4">
       {renderStats()}
+      {renderSyncCard()}
       <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
         <div className="bg-gradient-to-br from-cyan-950 to-slate-900 rounded-xl p-6 text-white">
           <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center mb-4">
@@ -353,6 +503,8 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
   );
 
   const renderSettings = () => (
+    <div className="space-y-4">
+    {renderSyncCard()}
     <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h3 className="text-sm font-semibold text-gray-900">Kiosk Mode</h3>
@@ -427,6 +579,7 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
         )}
       </div>
     </div>
+    </div>
   );
 
   const renderAnalytics = () => (
@@ -463,11 +616,13 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
           <p className="text-xs text-gray-400 mt-0.5">{summary?.present ?? 0} student(s) present</p>
         </div>
         <button
-          onClick={loadSummary}
-          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-          title="Refresh attendance"
+          onClick={handleSyncAndRefresh}
+          disabled={syncStatus?.isSyncing}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title={localServerOnline ? 'Sync local server & refresh' : 'Refresh from cloud'}
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading || syncStatus?.isSyncing ? 'animate-spin' : ''}`} />
+          {localServerOnline ? 'Sync & Refresh' : 'Refresh'}
         </button>
       </div>
       {isLoading ? (

@@ -8,6 +8,7 @@ const {
   updateUserProfile,
   resetUserPassword,
   getStudentBySystemId,
+  getUserByUid,
   stripSensitiveFields,
 } = require("../services/userService");
 const {
@@ -16,6 +17,7 @@ const {
   NON_SUPERADMIN_ROLES,
 } = require("../services/rolePolicy");
 const {badRequest, forbidden} = require("../httpError");
+const {addToSyncQueue} = require("../services/syncQueueService");
 
 // eslint-disable-next-line new-cap
 const router = express.Router();
@@ -53,6 +55,7 @@ router.post("/", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
     }
 
     const user = await createUser({...req.body, createdBy: req.auth.uid});
+    if (user.role === "student") addToSyncQueue(user.uid, "upsert");
     res.status(201).json({success: true, user});
   } catch (error) {
     next(error);
@@ -69,7 +72,9 @@ router.patch("/:uid/status", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res
       throw badRequest('Status must be "active" or "inactive".');
     }
 
+    const target = await getUserByUid(uid);
     await updateUserStatus(uid, status);
+    if (target?.role === "student") addToSyncQueue(uid, "upsert");
     res.json({success: true});
   } catch (error) {
     next(error);
@@ -96,7 +101,9 @@ router.post("/:uid/reset-password", requireAuth(ACCOUNT_MANAGER_ROLES), async (r
 // DELETE /api/accounts/:uid — delete account
 router.delete("/:uid", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
   try {
+    const target = await getUserByUid(req.params.uid);
     await deleteUser(req.params.uid);
+    if (target?.role === "student") addToSyncQueue(req.params.uid, "delete");
     res.json({success: true});
   } catch (error) {
     next(error);
@@ -110,6 +117,7 @@ router.patch("/:uid/profile", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, re
       callerRole: req.auth.role,
       callerUid: req.auth.uid,
     });
+    if (user.role === "student") addToSyncQueue(req.params.uid, "upsert");
     res.json({success: true, user});
   } catch (error) {
     next(error);

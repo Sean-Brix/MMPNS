@@ -6,6 +6,7 @@ const {accountRoutes} = require("./routes/accountRoutes");
 const {attendanceRoutes} = require("./routes/attendanceRoutes");
 const {storageRoutes} = require("./routes/storageRoutes");
 const {tableRoutes} = require("./routes/tableRoutes");
+const {syncRoutes} = require("./routes/syncRoutes");
 
 const app = express();
 // eslint-disable-next-line new-cap
@@ -27,6 +28,7 @@ router.use("/accounts", accountRoutes);
 router.use("/attendance", attendanceRoutes);
 router.use("/tables", tableRoutes);
 router.use("/storage", storageRoutes);
+router.use("/sync", syncRoutes);
 
 app.use("/api", router);
 app.use("/", router);

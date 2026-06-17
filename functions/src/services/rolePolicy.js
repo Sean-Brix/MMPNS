@@ -24,6 +24,7 @@ const ADMINISTRATION_ROLES = [
 
 const ACCOUNT_MANAGER_ROLES = ["registrar", "admin", "superadmin"];
 const ATTENDANCE_MANAGER_ROLES = ["security", "admin", "superadmin"];
+const ATTENDANCE_VIEWER_ROLES = ["security", "admin", "superadmin", "registrar"];
 
 const ROLE_PORTAL_ROUTES = {
   teacher: "/teacher-portal",
@@ -99,6 +100,7 @@ module.exports = {
   ADMINISTRATION_ROLES,
   ACCOUNT_MANAGER_ROLES,
   ATTENDANCE_MANAGER_ROLES,
+  ATTENDANCE_VIEWER_ROLES,
   ROLE_PORTAL_ROUTES,
   getAllowedProfileFields,
   pickRoleProfileFields,

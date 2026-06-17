@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertCircle, Clock3, Hash, ScanLine, UserRound, Wifi, X } from 'lucide-react';
+import { AlertCircle, Clock3, Hash, ScanLine, UserRound, Wifi, WifiOff, X } from 'lucide-react';
 import {
   recordAttendanceScan,
+  recordAttendanceScanLocal,
+  pingLocalServer,
+  LOCAL_SERVER_URL,
   type AttendanceRecord,
   type AttendanceScanMode,
 } from '../../../utils/apiClient';
@@ -293,6 +296,7 @@ export const QrKiosk: React.FC<{
   const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
   const [recordedMode, setRecordedMode] = useState<AttendanceScanMode>(scanMode);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const scanIdRef = useRef(0);
 
@@ -301,6 +305,10 @@ export const QrKiosk: React.FC<{
     focus();
     const id = setInterval(focus, 1000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    pingLocalServer().then(setIsOfflineMode);
   }, []);
 
   const handleScan = useCallback(async (raw: string) => {
@@ -319,9 +327,23 @@ export const QrKiosk: React.FC<{
     setKioskState('loading');
 
     try {
-      const res = await recordAttendanceScan(trimmed, modeForScan);
+      let res: Awaited<ReturnType<typeof recordAttendanceScan>>;
+      if (isOfflineMode) {
+        try {
+          res = await recordAttendanceScanLocal(trimmed, modeForScan);
+        } catch (localErr: any) {
+          // Local server failed — fall back to cloud
+          if (localErr?.status === 404) throw localErr;
+          res = await recordAttendanceScan(trimmed, modeForScan);
+        }
+      } else {
+        res = await recordAttendanceScan(trimmed, modeForScan);
+      }
       if (thisScan !== scanIdRef.current) return;
-      setStudent(res.student);
+      const resolvedPhotoUrl = isOfflineMode && res.student?.photoUrl?.startsWith('/photos/')
+        ? `${LOCAL_SERVER_URL}${res.student.photoUrl}`
+        : res.student?.photoUrl;
+      setStudent({ ...res.student, photoUrl: resolvedPhotoUrl });
       setAttendance(res.attendance);
       setRecordedMode(res.scanMode || modeForScan);
       setKioskState('found');
@@ -420,10 +442,10 @@ export const QrKiosk: React.FC<{
       </div>
 
       <div className="flex flex-shrink-0 items-center justify-between border-t border-white/10 bg-black/20 px-8 py-4 backdrop-blur-sm">
-        <div className="flex items-center gap-2.5 text-sm text-white/35">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-green-400" />
-          <Wifi size={13} />
-          <span>Scanner active - scan anytime</span>
+        <div className={`flex items-center gap-2.5 text-sm ${isOfflineMode ? 'text-blue-300/70' : 'text-white/35'}`}>
+          <span className={`h-2 w-2 animate-pulse rounded-full ${isOfflineMode ? 'bg-blue-400' : 'bg-green-400'}`} />
+          {isOfflineMode ? <WifiOff size={13} /> : <Wifi size={13} />}
+          <span>{isOfflineMode ? 'Offline Mode — local server active' : 'Online Mode — scanner active'}</span>
         </div>
         {kioskState !== 'welcome' && kioskState !== 'loading' && (
           <motion.p

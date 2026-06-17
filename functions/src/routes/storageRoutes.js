@@ -8,6 +8,7 @@ const {
   uploadStudentPhoto,
 } = require("../services/storageService");
 const {updateStudentPhoto} = require("../services/userService");
+const {addToSyncQueue} = require("../services/syncQueueService");
 
 // eslint-disable-next-line new-cap
 const router = express.Router();
@@ -97,6 +98,7 @@ router.post(
           filename: file && file.filename,
         });
         await updateStudentPhoto(uid, result.url);
+        addToSyncQueue(uid, "upsert");
         res.status(201).json(result);
       } catch (error) {
         next(error);

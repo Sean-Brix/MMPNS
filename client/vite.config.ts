@@ -56,6 +56,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:5001/mmpns-9bdde/us-central1/api',
         changeOrigin: true,
       },
+      '/local': {
+        target: process.env.VITE_LOCAL_SERVER_URL || 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/photos': {
+        target: process.env.VITE_LOCAL_SERVER_URL || 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 

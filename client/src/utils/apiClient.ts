@@ -211,6 +211,58 @@ export const recordAttendanceScan = (systemId: string, scanMode: AttendanceScanM
 export const getAttendanceSummary = (date?: string) =>
   apiFetch<AttendanceSummary>(`/attendance/summary${date ? `?date=${encodeURIComponent(date)}` : ''}`);
 
+// ─── Local Server (Offline Mode) ──────────────────────────────────────────────
+
+const LOCAL_SERVER_URL = (import.meta.env.VITE_LOCAL_SERVER_URL || 'http://localhost:3001').replace(/\/$/, '');
+
+export { LOCAL_SERVER_URL };
+
+const localFetch = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+  const url = `${LOCAL_SERVER_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const res = await fetch(url, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+  });
+  const text = await res.text();
+  const parsed = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new ApiError(res.status, parsed?.error || res.statusText || 'Local server error');
+  return parsed as T;
+};
+
+export const pingLocalServer = async (): Promise<boolean> => {
+  try {
+    const res = await fetch(`${LOCAL_SERVER_URL}/health`, { signal: AbortSignal.timeout(2000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+};
+
+export const recordAttendanceScanLocal = (systemId: string, scanMode: AttendanceScanMode = 'time_in') =>
+  localFetch<{
+    student: any;
+    attendance: AttendanceRecord;
+    isFirstScan: boolean;
+    scanMode: AttendanceScanMode;
+  }>('/local/attendance/scan', {
+    method: 'POST',
+    body: JSON.stringify({ systemId, scanMode }),
+  });
+
+export interface LocalSyncStatus {
+  lastSynced: string | null;
+  isSyncing: boolean;
+  syncSteps: string[];
+  lastError: string | null;
+  pendingLogs: number;
+}
+
+export const getLocalSyncStatus = () =>
+  localFetch<LocalSyncStatus>('/local/sync/status');
+
+export const triggerManualSync = () =>
+  localFetch<{ started: boolean }>('/local/sync/run', { method: 'POST' });
+
 // ─── Legacy helpers (kept for compatibility with existing features) ────────────
 
 export const hasDeveloperAdminSession = (): boolean => isAdminRole();
