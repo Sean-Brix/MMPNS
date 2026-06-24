@@ -21,6 +21,8 @@ const allowedTables = new Set([
   "teachers",
   "evaluation_rubrics",
   "teacher_evaluations",
+  "books",
+  "library_circulation",
 ]);
 
 const assertTable = (table) => {

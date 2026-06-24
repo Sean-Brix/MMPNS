@@ -2,16 +2,18 @@ import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Library, BookOpen, BookMarked,
   Clock, Search, BarChart3, AlertCircle, CheckCircle2,
-  BookCopy, Users, TrendingUp,
+  BookCopy, Users, TrendingUp, ScanLine,
 } from 'lucide-react';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { BookManagement } from '../../components/librarian/BookManagement';
+import { CirculationPage } from '../../components/librarian/CirculationPage';
 import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
 import { initializeDatabase } from '../../../utils/database';
 import { useNavigate } from 'react-router';
 
 const MENU_ITEMS: SidebarItem[] = [
   { id: 'dashboard',  label: 'Dashboard',     icon: LayoutDashboard },
+  { id: 'circulation',label: 'Circulation',    icon: ScanLine },
   { id: 'catalog',    label: 'Books Catalog',  icon: BookOpen },
   { id: 'borrowed',   label: 'Borrowed Books', icon: BookMarked },
   { id: 'due',        label: 'Due Returns',    icon: Clock },
@@ -126,6 +128,8 @@ export const LibrarianPortal: React.FC = () => {
 
   const renderSection = () => {
     switch (activeSection) {
+      case 'circulation':
+        return <CirculationPage user={user} />;
       case 'catalog':
         return <BookManagement />;
       case 'borrowed':

@@ -20,7 +20,8 @@ export type DatabaseTable =
   | 'teachers'
   | 'evaluation_rubrics'
   | 'teacher_evaluations'
-  | 'books';
+  | 'books'
+  | 'library_circulation';
 
 const DATABASE_TABLES: DatabaseTable[] = [
   'faculty',
@@ -38,6 +39,7 @@ const DATABASE_TABLES: DatabaseTable[] = [
   'evaluation_rubrics',
   'teacher_evaluations',
   'books',
+  'library_circulation',
 ];
 
 export const DATABASE_UPDATED_EVENT = 'mmpns-db-updated';

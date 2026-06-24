@@ -7,10 +7,11 @@ import {
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import {
-  getAccounts, createAccount, deleteAccount,
+  getAccounts, deleteAccount,
   updateAccountProfile, uploadStudentPhoto,
 } from '../../../utils/apiClient';
-import { Modal, inputClass, labelClass } from './shared';
+import { Modal, Pagination, inputClass, labelClass } from './shared';
+import { BatchStudentRegistration } from './BatchStudentRegistration';
 import {
   useRowSelection, SelectCheckbox, BulkEditField, ConfirmDialog,
   runBulk, summarizeBulk,
@@ -229,11 +230,12 @@ const DeleteConfirmDialog: React.FC<{
 
 // ─── Shared Form Fields ───────────────────────────────────────────────────────
 
-const StudentFormFields: React.FC<{
+export const StudentFormFields: React.FC<{
   form: Record<string, string>;
   set: (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => void;
   passwordRequired?: boolean;
-}> = ({ form, set, passwordRequired = false }) => (
+  hidePassword?: boolean;
+}> = ({ form, set, passwordRequired = false, hidePassword = false }) => (
   <div className="p-5 space-y-5">
     {/* Name */}
     <section>
@@ -326,142 +328,39 @@ const StudentFormFields: React.FC<{
     </section>
 
     {/* Password */}
-    <section>
-      <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">
-        {passwordRequired ? 'Login Credentials' : 'Change Password (optional)'}
-      </p>
-      {passwordRequired && (
-        <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg mb-3">
-          <p className="text-xs text-blue-700">Student login code and system ID are auto-generated after registration.</p>
+    {!hidePassword && (
+      <section>
+        <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">
+          {passwordRequired ? 'Login Credentials' : 'Change Password (optional)'}
+        </p>
+        {passwordRequired && (
+          <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg mb-3">
+            <p className="text-xs text-blue-700">Student login code and system ID are auto-generated after registration.</p>
+          </div>
+        )}
+        <div>
+          <label className={labelClass}>{passwordRequired ? 'Initial Password *' : 'New Password'}</label>
+          <input
+            type="password"
+            value={form.password}
+            onChange={set('password')}
+            className={inputClass}
+            placeholder={passwordRequired ? 'Minimum 6 characters' : 'Leave blank to keep current'}
+            required={passwordRequired}
+            minLength={6}
+            autoComplete="new-password"
+          />
         </div>
-      )}
-      <div>
-        <label className={labelClass}>{passwordRequired ? 'Initial Password *' : 'New Password'}</label>
-        <input
-          type="password"
-          value={form.password}
-          onChange={set('password')}
-          className={inputClass}
-          placeholder={passwordRequired ? 'Minimum 6 characters' : 'Leave blank to keep current'}
-          required={passwordRequired}
-          minLength={6}
-          autoComplete="new-password"
-        />
-      </div>
-    </section>
+      </section>
+    )}
   </div>
 );
 
-// ─── Register Form ────────────────────────────────────────────────────────────
-
-const BLANK_FORM = {
+// Shared blank student draft — reused by the batch registration entry form.
+export const BLANK_FORM = {
   firstName: '', middleName: '', lastName: '', extension: '',
   noOfSiblings: '', monthlyFamilyIncome: '', province: '', city: '', lrn: '', password: '',
   gradeLevel: '', section: '', emergencyContactName: '', emergencyContactNumber: '',
-};
-
-const RegisterForm: React.FC<{
-  onCreated: (student: StudentRecord) => void;
-  onCancel: () => void;
-}> = ({ onCreated, onCancel }) => {
-  const [form, setForm] = useState(BLANK_FORM);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState<StudentRecord | null>(null);
-
-  const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((p) => ({ ...p, [key]: e.target.value }));
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isLoading) return;
-    setError('');
-    setIsLoading(true);
-    try {
-      const payload: Record<string, any> = {
-        role: 'student',
-        firstName: form.firstName.trim(), lastName: form.lastName.trim(),
-        password: form.password, lrn: form.lrn.trim(),
-        gradeLevel: form.gradeLevel.trim(), section: form.section.trim(),
-        noOfSiblings: Number(form.noOfSiblings) || 0,
-        monthlyFamilyIncome: Number(form.monthlyFamilyIncome) || 0,
-        province: form.province.trim(), city: form.city.trim(),
-        emergencyContactName: form.emergencyContactName.trim(),
-        emergencyContactNumber: form.emergencyContactNumber.trim(),
-      };
-      if (form.middleName.trim()) payload.middleName = form.middleName.trim();
-      if (form.extension.trim()) payload.extension = form.extension.trim();
-
-      const res = await createAccount(payload);
-      let student: StudentRecord = res.user;
-
-      if (photoFile && student.uid) {
-        try {
-          const photoUrl = await uploadStudentPhoto(student.uid, photoFile);
-          student = { ...student, photoUrl };
-        } catch { /* non-fatal */ }
-      }
-
-      setSuccess(student);
-      onCreated(student);
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to register student.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (success) {
-    return (
-      <div className="flex flex-col items-center gap-4 py-8 px-6 text-center">
-        <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
-          <CheckCircle2 className="w-7 h-7 text-green-600" />
-        </div>
-        <div>
-          <p className="font-semibold text-gray-900">Student Registered</p>
-          <p className="text-sm text-gray-500 mt-1">{success.displayName} has been added.</p>
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-left">
-            <p className="text-xs font-medium text-amber-800 mb-1">Student Login Code</p>
-            <p className="font-mono text-base font-bold text-amber-900 tracking-widest">{success.studentCode}</p>
-            <p className="text-xs text-amber-700 mt-1">Share this code with the student — it is their login identifier.</p>
-          </div>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onCancel} className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50">Close</button>
-          <button onClick={() => { setSuccess(null); setForm(BLANK_FORM); setPhotoFile(null); setPhotoPreview(''); }}
-            className="px-4 py-2 rounded-lg bg-purple-700 text-white text-sm hover:bg-purple-800">
-            Register Another
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-      <div className="p-5 pb-0">
-        <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Student Photo (optional)</p>
-        <PhotoPicker
-          preview={photoPreview}
-          onFile={(f) => { setPhotoFile(f); const r = new FileReader(); r.onload = (ev) => setPhotoPreview(ev.target?.result as string); r.readAsDataURL(f); }}
-          onRemove={() => { setPhotoFile(null); setPhotoPreview(''); }}
-        />
-      </div>
-      <StudentFormFields form={form} set={set} passwordRequired />
-      {error && <div className="mx-5 mb-3 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">{error}</div>}
-      <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex gap-3">
-        <button type="button" onClick={onCancel} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-white transition-colors">
-          Cancel
-        </button>
-        <button type="submit" disabled={isLoading}
-          className="flex-1 px-4 py-2.5 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
-          {isLoading ? <><RefreshCw size={14} className="animate-spin" />Registering...</> : <><UserPlus size={14} />Register Student</>}
-        </button>
-      </div>
-    </form>
-  );
 };
 
 // ─── Edit Form ────────────────────────────────────────────────────────────────
@@ -567,8 +466,10 @@ export const StudentRegistration: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [gradeFilter, setGradeFilter] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
-  const [showRegister, setShowRegister] = useState(false);
+  const [showBatch, setShowBatch] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [showExportModal, setShowExportModal] = useState(false);
   const [codeStudent, setCodeStudent] = useState<StudentRecord | null>(null);
   const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
@@ -621,6 +522,12 @@ export const StudentRegistration: React.FC = () => {
     );
   });
 
+  // ─── Pagination ───────────────────────────────────────────────────────────────
+  useEffect(() => { setPage(1); }, [searchQuery, gradeFilter, sectionFilter]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   const handleDeleted = async () => {
     if (!deleteStudent) return;
     await deleteAccount(deleteStudent.uid);
@@ -639,8 +546,8 @@ export const StudentRegistration: React.FC = () => {
     selection.retain(filtered.map((s) => s.uid));
   }, [filtered, selection.retain]);
 
-  const allVisibleSelected = filtered.length > 0 && filtered.every((s) => selection.isSelected(s.uid));
-  const someVisibleSelected = filtered.some((s) => selection.isSelected(s.uid));
+  const allVisibleSelected = paged.length > 0 && paged.every((s) => selection.isSelected(s.uid));
+  const someVisibleSelected = paged.some((s) => selection.isSelected(s.uid));
 
   // Non-unique fields safe to share across students. LRN / login code / system ID
   // are unique per student and are intentionally not bulk-editable.
@@ -732,9 +639,9 @@ export const StudentRegistration: React.FC = () => {
           className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
           <FileDown size={15} />Export ID Codes
         </button>
-        <button onClick={() => setShowRegister(true)}
+        <button onClick={() => setShowBatch(true)}
           className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 bg-purple-700 text-white rounded-lg text-sm font-medium hover:bg-purple-800 transition-colors">
-          <UserPlus size={15} />Register Student
+          <UserPlus size={15} />Register Students
         </button>
       </div>
 
@@ -815,9 +722,9 @@ export const StudentRegistration: React.FC = () => {
                     <SelectCheckbox
                       checked={allVisibleSelected}
                       indeterminate={someVisibleSelected}
-                      onChange={() => selection.setMany(filtered.map((s) => s.uid), !allVisibleSelected)}
+                      onChange={() => selection.setMany(paged.map((s) => s.uid), !allVisibleSelected)}
                       className="accent-purple-700"
-                      ariaLabel="Select all students"
+                      ariaLabel="Select all students on this page"
                     />
                   </th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Name</th>
@@ -830,7 +737,7 @@ export const StudentRegistration: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filtered.map((s) => (
+                {paged.map((s) => (
                   <tr key={s.uid} className={`transition-colors ${selection.isSelected(s.uid) ? 'bg-purple-50/60' : 'hover:bg-purple-50/30'}`}>
                     <td className="px-4 py-3">
                       <SelectCheckbox
@@ -892,24 +799,22 @@ export const StudentRegistration: React.FC = () => {
             </table>
           </div>
         )}
+        <Pagination
+          page={safePage}
+          pageCount={pageCount}
+          totalItems={filtered.length}
+          pageSize={PAGE_SIZE}
+          onChange={setPage}
+        />
       </div>
 
-      {/* Register modal */}
-      <Modal open={showRegister} onClose={() => setShowRegister(false)} maxW="max-w-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div>
-            <p className="font-semibold text-gray-900">New Student Registration</p>
-            <p className="text-xs text-gray-400 mt-0.5">System ID and login code are auto-generated</p>
-          </div>
-          <button onClick={() => setShowRegister(false)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-        <RegisterForm
-          onCreated={(s) => { setStudents((p) => [s, ...p]); setShowRegister(false); }}
-          onCancel={() => setShowRegister(false)}
-        />
-      </Modal>
+      {/* Batch registration modal */}
+      <BatchStudentRegistration
+        open={showBatch}
+        onClose={() => setShowBatch(false)}
+        existingStudents={students}
+        onRegistered={(created) => { if (created.length > 0) setStudents((p) => [...created, ...p]); }}
+      />
 
       {/* Edit modal */}
       <Modal open={!!editStudent} onClose={() => setEditStudent(null)} maxW="max-w-xl">

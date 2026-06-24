@@ -13,8 +13,9 @@ const {
 const router = express.Router();
 
 const tableWriteRoles = ["teacher", "admin", "superadmin", "principal"];
-// Librarians manage the books catalog, so they may also write that one table.
-const bookTableWriteRoles = [...tableWriteRoles, "librarian"];
+// Librarians manage library records without broad table write access.
+const libraryTables = new Set(["books", "library_circulation"]);
+const libraryTableWriteRoles = [...tableWriteRoles, "librarian"];
 const developerRoles = new Set(["admin", "superadmin"]);
 
 const isCredentialsTable = (req) => req.params.table === "credentials";
@@ -52,7 +53,9 @@ const requireTableWrite = (req, res, next) => {
     return;
   }
 
-  const roles = req.params.table === "books" ? bookTableWriteRoles : tableWriteRoles;
+  const roles = libraryTables.has(req.params.table) ?
+    libraryTableWriteRoles :
+    tableWriteRoles;
   requireAuth(roles)(req, res, next);
 };
 

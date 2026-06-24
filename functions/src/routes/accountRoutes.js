@@ -23,6 +23,7 @@ const {addToSyncQueue} = require("../services/syncQueueService");
 const router = express.Router();
 
 const ALL_ROLES = [...NON_SUPERADMIN_ROLES, "superadmin"];
+const STUDENT_SCAN_ROLES = [...ATTENDANCE_MANAGER_ROLES, "librarian"];
 
 // GET /api/accounts — list all users
 router.get("/", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
@@ -127,7 +128,7 @@ router.patch("/:uid/profile", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, re
 // GET /api/accounts/scan/:systemId — kiosk lookup by student system ID
 const SYSTEM_ID_PATTERN = /^\d{2}0\d{2}0\d{2}0\d{2}0\d{2}0\d{2}$/;
 
-router.get("/scan/:systemId", requireAuth(ATTENDANCE_MANAGER_ROLES), async (req, res, next) => {
+router.get("/scan/:systemId", requireAuth(STUDENT_SCAN_ROLES), async (req, res, next) => {
   try {
     const {systemId} = req.params;
 
