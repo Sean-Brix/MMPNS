@@ -2,6 +2,7 @@ const express = require("express");
 const {requireAuth} = require("../services/sessionService");
 const {
   createUser,
+  createStudentsBatch,
   listUsers,
   deleteUser,
   updateUserStatus,
@@ -58,6 +59,26 @@ router.post("/", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
     const user = await createUser({...req.body, createdBy: req.auth.uid});
     if (user.role === "student") addToSyncQueue(user.uid, "upsert");
     res.status(201).json({success: true, user});
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/accounts/batch — create many student accounts in one request
+router.post("/batch", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
+  try {
+    const students = Array.isArray(req.body && req.body.students) ?
+      req.body.students :
+      [];
+
+    if (students.length === 0) {
+      throw badRequest("No students provided.");
+    }
+
+    const withRole = students.map((student) => ({...student, role: "student"}));
+    const {created, results} = await createStudentsBatch(withRole, req.auth.uid);
+    created.forEach((user) => addToSyncQueue(user.uid, "upsert"));
+    res.status(201).json({success: true, created, results});
   } catch (error) {
     next(error);
   }

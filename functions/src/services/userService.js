@@ -245,6 +245,79 @@ const createUser = async ({role, username, password, createdBy, ...profileFields
   return stripSensitiveFields(userDoc);
 };
 
+// Creates many student accounts in a single request. Builds every document
+// (unique code generation + password hashing), then commits them with Firestore
+// batched writes (≤500 ops/commit). Per-row failures are reported, not thrown,
+// so one bad row never aborts the whole batch.
+const createStudentsBatch = async (students, createdBy) => {
+  const results = [];
+  const docs = [];
+  const usedCodes = new Set();
+
+  for (let i = 0; i < students.length; i++) {
+    const fields = students[i] || {};
+    try {
+      const errors = validateCreatePayload("student", fields);
+      if (errors.length) throw new Error(errors.join(" "));
+
+      let studentCode = null;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const candidate = generateStudentCode();
+        if (usedCodes.has(candidate)) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const existing = await getUserByUsername(candidate);
+        if (!existing) {
+          studentCode = candidate;
+          break;
+        }
+      }
+      if (!studentCode) throw new Error("Could not generate a unique student code.");
+      usedCodes.add(studentCode);
+
+      const uid = generateUUID();
+      const systemIdRaw = generateSystemIdRaw();
+      const sanitizedProfile = pickRoleProfileFields("student", fields);
+      const displayName = buildDisplayName("student", {...sanitizedProfile, username: studentCode});
+      const initials = buildInitials(displayName);
+      // eslint-disable-next-line no-await-in-loop
+      const passwordHash = await hashPassword(fields.password);
+      const now = new Date().toISOString();
+
+      docs.push({
+        uid,
+        role: "student",
+        username: studentCode,
+        status: "active",
+        createdAt: now,
+        createdBy: createdBy || "system",
+        lastLogin: null,
+        displayName,
+        initials,
+        passwordHash,
+        ...sanitizedProfile,
+        studentCode,
+        systemIdRaw,
+        systemId: formatSystemId(systemIdRaw),
+      });
+      results.push({index: i, status: "success", uid, studentCode});
+    } catch (err) {
+      results.push({index: i, status: "failed", error: err.message});
+    }
+  }
+
+  const COMMIT_CHUNK = 450;
+  for (let i = 0; i < docs.length; i += COMMIT_CHUNK) {
+    const batch = firestore.batch();
+    docs.slice(i, i + COMMIT_CHUNK).forEach((doc) => {
+      batch.set(firestore.collection(USERS_COLLECTION).doc(doc.uid), doc);
+    });
+    // eslint-disable-next-line no-await-in-loop
+    await batch.commit();
+  }
+
+  return {created: docs.map((doc) => stripSensitiveFields(doc)), results};
+};
+
 const listUsers = async () => {
   const snapshot = await firestore
       .collection(USERS_COLLECTION)
@@ -411,6 +484,7 @@ module.exports = {
   getUserByUid,
   getStudentBySystemId,
   createUser,
+  createStudentsBatch,
   listUsers,
   deleteUser,
   updateUserStatus,

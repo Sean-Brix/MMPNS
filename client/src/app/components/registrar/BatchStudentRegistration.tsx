@@ -4,7 +4,7 @@ import {
   X, UserPlus, Plus, Trash2, Pencil, CheckCircle2, XCircle, AlertCircle,
   Loader2, Download, ArrowRight, RotateCcw, Users, Ban,
 } from 'lucide-react';
-import { createAccount } from '../../../utils/apiClient';
+import { createStudentsBatch } from '../../../utils/apiClient';
 import { Modal, Pagination } from './shared';
 import { ConfirmDialog } from '../common/BulkActions';
 import { StudentFormFields, BLANK_FORM, type StudentRecord } from './StudentRegistration';
@@ -55,10 +55,13 @@ export const BatchStudentRegistration: React.FC<BatchStudentRegistrationProps> =
   const [batchPage, setBatchPage] = useState(1);
 
   // Registration progress
-  const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<BatchResult[]>([]);
   const [processed, setProcessed] = useState(0);
   const cancelRef = useRef(false);
+
+  // Students are sent in chunks of this size — one request per chunk instead of
+  // one per student. Cancellation takes effect between chunks.
+  const CHUNK_SIZE = 50;
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
 
@@ -101,48 +104,66 @@ export const BatchStudentRegistration: React.FC<BatchStudentRegistrationProps> =
     if (editingId === id) resetDraft();
   };
 
+  const buildPayload = (entry: Draft, password: string): Record<string, any> => {
+    const payload: Record<string, any> = {
+      firstName: entry.firstName.trim(), lastName: entry.lastName.trim(),
+      password, lrn: entry.lrn.trim(),
+      gradeLevel: entry.gradeLevel.trim(), section: entry.section.trim(),
+      noOfSiblings: Number(entry.noOfSiblings) || 0,
+      monthlyFamilyIncome: Number(entry.monthlyFamilyIncome) || 0,
+      province: entry.province.trim(), city: entry.city.trim(),
+      emergencyContactName: entry.emergencyContactName.trim(),
+      emergencyContactNumber: entry.emergencyContactNumber.trim(),
+    };
+    if (entry.middleName.trim()) payload.middleName = entry.middleName.trim();
+    if (entry.extension.trim()) payload.extension = entry.extension.trim();
+    return payload;
+  };
+
   const startRegistration = async () => {
     if (batch.length === 0) return;
     setStage('registering');
     cancelRef.current = false;
-    setProgress(0);
     setProcessed(0);
+
+    // Pre-generate a temp password per student (kept client-side for the CSV).
+    const prepared = batch.map((entry) => {
+      const password = generateTempPassword();
+      return { entry, password, payload: buildPayload(entry, password) };
+    });
+
     const collected: BatchResult[] = [];
     const created: StudentRecord[] = [];
 
-    for (let i = 0; i < batch.length; i++) {
+    for (let start = 0; start < prepared.length; start += CHUNK_SIZE) {
       if (cancelRef.current) break;
-      setProgress(i);
-      const entry = batch[i];
-      const password = generateTempPassword();
-      const base: BatchResult = { name: draftName(entry), gradeLevel: entry.gradeLevel.trim(), section: entry.section.trim(), status: 'failed' };
+      const slice = prepared.slice(start, start + CHUNK_SIZE);
 
       try {
-        const payload: Record<string, any> = {
-          role: 'student',
-          firstName: entry.firstName.trim(), lastName: entry.lastName.trim(),
-          password, lrn: entry.lrn.trim(),
-          gradeLevel: entry.gradeLevel.trim(), section: entry.section.trim(),
-          noOfSiblings: Number(entry.noOfSiblings) || 0,
-          monthlyFamilyIncome: Number(entry.monthlyFamilyIncome) || 0,
-          province: entry.province.trim(), city: entry.city.trim(),
-          emergencyContactName: entry.emergencyContactName.trim(),
-          emergencyContactNumber: entry.emergencyContactNumber.trim(),
-        };
-        if (entry.middleName.trim()) payload.middleName = entry.middleName.trim();
-        if (entry.extension.trim()) payload.extension = entry.extension.trim();
-
-        const res = await createAccount(payload);
-        created.push(res.user);
-        collected.push({ ...base, status: 'success', studentCode: res.user.studentCode, password });
+        const res = await createStudentsBatch(slice.map((p) => p.payload));
+        res.results.forEach((r) => {
+          const p = slice[r.index];
+          if (!p) return;
+          const base = { name: draftName(p.entry), gradeLevel: p.entry.gradeLevel.trim(), section: p.entry.section.trim() };
+          if (r.status === 'success') {
+            collected.push({ ...base, status: 'success', studentCode: r.studentCode, password: p.password });
+          } else {
+            collected.push({ ...base, status: 'failed', message: r.error || 'Registration failed.' });
+          }
+        });
+        (res.created || []).forEach((u) => created.push(u as StudentRecord));
       } catch (err: any) {
-        collected.push({ ...base, status: 'failed', message: err?.message || 'Registration failed.' });
+        // Whole chunk failed (network/server) — mark each row in it as failed.
+        slice.forEach((p) => collected.push({
+          name: draftName(p.entry), gradeLevel: p.entry.gradeLevel.trim(), section: p.entry.section.trim(),
+          status: 'failed', message: err?.message || 'Registration failed.',
+        }));
       }
+
       setProcessed(collected.length);
       setResults([...collected]);
     }
 
-    setProgress(batch.length);
     if (created.length > 0) onRegistered(created);
     setStage('summary');
   };
@@ -177,7 +198,6 @@ export const BatchStudentRegistration: React.FC<BatchStudentRegistrationProps> =
     resetDraft();
     setResults([]);
     setProcessed(0);
-    setProgress(0);
     setBatchPage(1);
     setFormError('');
     cancelRef.current = false;
@@ -311,18 +331,13 @@ export const BatchStudentRegistration: React.FC<BatchStudentRegistrationProps> =
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
                   <Loader2 size={15} className="animate-spin text-purple-600" />
-                  {cancelRef.current ? 'Stopping…' : 'Registering students…'}
+                  {cancelRef.current ? 'Stopping…' : `Registering students (${CHUNK_SIZE} per request)…`}
                 </p>
                 <span className="text-xs text-gray-400">{processed} / {batch.length}</span>
               </div>
               <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-4">
                 <motion.div className="h-full bg-purple-600 rounded-full" animate={{ width: `${progressPct}%` }} transition={{ ease: 'easeOut', duration: 0.25 }} />
               </div>
-              {progress < batch.length && !cancelRef.current && (
-                <motion.p key={progress} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="text-xs text-gray-500 mb-4">
-                  Currently registering: <span className="font-medium text-gray-700">{draftName(batch[progress])}</span>
-                </motion.p>
-              )}
               <div className="max-h-56 overflow-y-auto space-y-1.5 mb-4">
                 <AnimatePresence initial={false}>
                   {results.slice().reverse().map((r, idx) => (

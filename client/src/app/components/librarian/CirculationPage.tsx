@@ -4,6 +4,7 @@ import {
   BookMarked,
   BookOpen,
   CheckCircle2,
+  ChevronRight,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -48,30 +49,33 @@ interface DraftBook {
   accession?: string;
 }
 
+interface CirculationBook {
+  id: string;
+  bookId: string;
+  barcode: string;
+  copyNumber: number;
+  accession?: string;
+  title: string;
+  author?: string;
+  callNo?: string;
+  isbn?: string;
+}
+
 interface CirculationRecord {
   id: string;
   status: 'borrowed' | 'returned';
   borrowedAt: string;
+  dueAt: string;
   approvedAt: string;
   approvedBy?: string;
   returnedAt?: string | null;
   updatedAt?: string;
   student: CirculationStudent;
-  book: {
-    id: string;
-    bookId: string;
-    barcode: string;
-    copyNumber: number;
-    accession?: string;
-    title: string;
-    author?: string;
-    callNo?: string;
-    isbn?: string;
-  };
+  books: CirculationBook[];
 }
 
 interface CirculationStore {
-  records?: CirculationRecord[];
+  records?: unknown[];
   lastUpdated?: string;
 }
 
@@ -88,6 +92,12 @@ const newRecordId = () =>
 
 const startOfDay = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
 
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() &&
@@ -207,6 +217,100 @@ const findBookForScan = (books: BookRecord[], raw: string): DraftBook | null => 
   };
 };
 
+const toBookSnapshot = (draft: DraftBook): CirculationBook => ({
+  id: draft.book.id,
+  bookId: draft.book.bookId,
+  barcode: draft.barcode,
+  copyNumber: draft.copyNumber,
+  accession: draft.accession,
+  title: draft.book.title,
+  author: draft.book.author,
+  callNo: draft.book.callNo,
+  isbn: draft.book.isbn,
+});
+
+const normalizeBookSnapshot = (value: any): CirculationBook | null => {
+  if (!value || typeof value !== 'object') return null;
+  const barcode = String(value.barcode || value.bookId || '').toLowerCase();
+  const title = String(value.title || '').trim();
+  if (!barcode || !title) return null;
+
+  return {
+    id: String(value.id || value.bookId || barcode),
+    bookId: String(value.bookId || barcode),
+    barcode,
+    copyNumber: Math.max(1, Number(value.copyNumber || 1)),
+    accession: value.accession,
+    title,
+    author: value.author,
+    callNo: value.callNo,
+    isbn: value.isbn,
+  };
+};
+
+const normalizeCirculationRecord = (value: any): CirculationRecord | null => {
+  if (!value || typeof value !== 'object' || !value.student) return null;
+
+  const rawBooks = Array.isArray(value.books) ? value.books : [value.book].filter(Boolean);
+  const books = rawBooks
+    .map(normalizeBookSnapshot)
+    .filter((book): book is CirculationBook => Boolean(book));
+
+  if (books.length === 0) return null;
+
+  const borrowedAt = String(value.borrowedAt || value.approvedAt || new Date().toISOString());
+  const dueAt = String(value.dueAt || value.expectedReturnAt || value.returnDueAt || value.borrowedAt || borrowedAt);
+  const status = value.status === 'returned' ? 'returned' : 'borrowed';
+
+  return {
+    id: String(value.id || newRecordId()),
+    status,
+    borrowedAt,
+    dueAt,
+    approvedAt: String(value.approvedAt || borrowedAt),
+    approvedBy: value.approvedBy,
+    returnedAt: value.returnedAt || null,
+    updatedAt: value.updatedAt,
+    student: value.student,
+    books,
+  };
+};
+
+const normalizeCirculationRecords = (values?: unknown[]): CirculationRecord[] => {
+  if (!Array.isArray(values)) return [];
+
+  const grouped = new Map<string, CirculationRecord>();
+  values.forEach((value) => {
+    const record = normalizeCirculationRecord(value);
+    if (!record) return;
+
+    const groupKey = [
+      record.status,
+      record.student.uid,
+      record.borrowedAt,
+      record.dueAt,
+      record.approvedAt,
+      record.returnedAt || '',
+    ].join('|');
+
+    const existing = grouped.get(groupKey);
+    if (!existing) {
+      grouped.set(groupKey, { ...record, books: [...record.books] });
+      return;
+    }
+
+    const existingBookKeys = new Set(existing.books.map((book) => book.barcode.toLowerCase()));
+    record.books.forEach((book) => {
+      if (!existingBookKeys.has(book.barcode.toLowerCase())) {
+        existing.books.push(book);
+        existingBookKeys.add(book.barcode.toLowerCase());
+      }
+    });
+  });
+
+  return Array.from(grouped.values());
+};
+
 const Stat: React.FC<{
   label: string;
   value: string | number;
@@ -222,7 +326,7 @@ const Stat: React.FC<{
   </div>
 );
 
-const DateTimePickerModal: React.FC<{
+const FutureDateTimePickerModal: React.FC<{
   open: boolean;
   title: string;
   description: string;
@@ -231,37 +335,43 @@ const DateTimePickerModal: React.FC<{
   onConfirm: (iso: string) => void;
   onCancel: () => void;
 }> = ({ open, title, description, initialValue, confirmLabel, onConfirm, onCancel }) => {
-  const now = new Date();
-  const initialDate = initialValue ? new Date(initialValue) : now;
-  const safeInitial = Number.isNaN(initialDate.getTime()) ? now : initialDate;
-  const [month, setMonth] = useState(() => new Date(safeInitial.getFullYear(), safeInitial.getMonth(), 1));
-  const [selectedDate, setSelectedDate] = useState(() => startOfDay(safeInitial));
+  const getInitialDate = useCallback(() => {
+    const current = new Date();
+    const fallback = addDays(current, 7);
+    const candidate = initialValue ? new Date(initialValue) : fallback;
+    if (Number.isNaN(candidate.getTime()) || candidate.getTime() <= current.getTime()) {
+      return fallback;
+    }
+    return candidate;
+  }, [initialValue]);
+
+  const initialDate = getInitialDate();
+  const [month, setMonth] = useState(() => new Date(initialDate.getFullYear(), initialDate.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState(() => startOfDay(initialDate));
   const [hour, setHour] = useState(() => {
-    const h = safeInitial.getHours();
+    const h = initialDate.getHours();
     return h % 12 === 0 ? 12 : h % 12;
   });
-  const [minute, setMinute] = useState(() => Math.floor(safeInitial.getMinutes() / 5) * 5);
-  const [period, setPeriod] = useState<'AM' | 'PM'>(() => safeInitial.getHours() >= 12 ? 'PM' : 'AM');
+  const [minute, setMinute] = useState(() => Math.floor(initialDate.getMinutes() / 5) * 5);
+  const [period, setPeriod] = useState<'AM' | 'PM'>(() => initialDate.getHours() >= 12 ? 'PM' : 'AM');
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open) return;
-    const nextInitial = initialValue ? new Date(initialValue) : new Date();
-    const safe = Number.isNaN(nextInitial.getTime()) ? new Date() : nextInitial;
+    const safe = getInitialDate();
     setMonth(new Date(safe.getFullYear(), safe.getMonth(), 1));
     setSelectedDate(startOfDay(safe));
     setHour(safe.getHours() % 12 === 0 ? 12 : safe.getHours() % 12);
     setMinute(Math.floor(safe.getMinutes() / 5) * 5);
     setPeriod(safe.getHours() >= 12 ? 'PM' : 'AM');
     setError('');
-  }, [initialValue, open]);
+  }, [getInitialDate, open]);
 
+  const now = new Date();
   const today = startOfDay(now);
+  const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   const selectedIsToday = sameDay(selectedDate, today);
-  const selectedIsFuture = selectedDate.getTime() > today.getTime();
-  const canGoNextMonth =
-    month.getFullYear() < today.getFullYear() ||
-    (month.getFullYear() === today.getFullYear() && month.getMonth() < today.getMonth());
+  const canGoPrevMonth = month.getTime() > currentMonth.getTime();
 
   const days = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -294,24 +404,22 @@ const DateTimePickerModal: React.FC<{
     const chosen = resolveDateTime();
     const current = new Date();
 
-    if (selectedIsFuture) {
-      setError('Choose today or an earlier date.');
-      return;
-    }
-
-    if (chosen.getTime() > current.getTime()) {
-      setError('The selected time cannot be later than now.');
+    if (chosen.getTime() <= current.getTime()) {
+      setError('Return date and time must be later than now.');
       return;
     }
 
     onConfirm(chosen.toISOString());
   };
 
-  const setQuickDate = (offset: number) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - offset);
+  const setQuickDate = (daysFromToday: number) => {
+    const current = new Date();
+    const date = addDays(current, daysFromToday);
     setSelectedDate(startOfDay(date));
     setMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    setHour(date.getHours() % 12 === 0 ? 12 : date.getHours() % 12);
+    setMinute(Math.floor(date.getMinutes() / 5) * 5);
+    setPeriod(date.getHours() >= 12 ? 'PM' : 'AM');
     setError('');
   };
 
@@ -338,7 +446,8 @@ const DateTimePickerModal: React.FC<{
             <button
               type="button"
               onClick={() => setMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-              className="w-10 h-10 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+              disabled={!canGoPrevMonth}
+              className="w-10 h-10 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               aria-label="Previous month"
             >
               <span aria-hidden="true">&lt;</span>
@@ -349,8 +458,7 @@ const DateTimePickerModal: React.FC<{
             <button
               type="button"
               onClick={() => setMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-              disabled={!canGoNextMonth}
-              className="w-10 h-10 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="w-10 h-10 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
               aria-label="Next month"
             >
               <span aria-hidden="true">&gt;</span>
@@ -365,7 +473,7 @@ const DateTimePickerModal: React.FC<{
             ))}
             {days.map((day, index) => {
               if (!day) return <div key={`empty-${index}`} className="h-11" />;
-              const disabled = day.getTime() > today.getTime();
+              const disabled = day.getTime() < today.getTime();
               const isSelected = sameDay(day, selectedDate);
               return (
                 <button
@@ -396,14 +504,14 @@ const DateTimePickerModal: React.FC<{
             <p className={labelClass}>Quick Select</p>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { label: 'Today', offset: 0 },
-                { label: 'Yesterday', offset: 1 },
-                { label: '2 days ago', offset: 2 },
+                { label: 'Today', days: 0 },
+                { label: 'Tomorrow', days: 1 },
+                { label: '7 days', days: 7 },
               ].map((item) => (
                 <button
                   key={item.label}
                   type="button"
-                  onClick={() => setQuickDate(item.offset)}
+                  onClick={() => setQuickDate(item.days)}
                   className="h-11 px-3 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   {item.label}
@@ -413,15 +521,15 @@ const DateTimePickerModal: React.FC<{
           </div>
 
           <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Selected Date</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Selected Return Date</p>
             <p className="text-lg font-semibold text-gray-900 mt-1">{formatDateOnly(selectedDate)}</p>
             <p className="text-xs text-amber-800 mt-1">
-              Future dates are disabled. If today is selected, choose the exact scan approval time.
+              Past dates are disabled. If today is selected, the time must still be later than now.
             </p>
           </div>
 
           <div>
-            <p className={labelClass}>Time</p>
+            <p className={labelClass}>Return Time</p>
             <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center">
               <input
                 type="number"
@@ -460,6 +568,9 @@ const DateTimePickerModal: React.FC<{
                 </button>
               ))}
             </div>
+            {selectedIsToday && (
+              <p className="mt-2 text-xs text-amber-700">Today is allowed only when the return time is still in the future.</p>
+            )}
           </div>
 
           {error && (
@@ -491,6 +602,117 @@ const DateTimePickerModal: React.FC<{
   );
 };
 
+const BooksDetailModal: React.FC<{
+  record: CirculationRecord | null;
+  onClose: () => void;
+  onEditDueDate: (record: CirculationRecord) => void;
+  onReturn: (record: CirculationRecord) => void;
+}> = ({ record, onClose, onEditDueDate, onReturn }) => (
+  <Modal open={!!record} onClose={onClose} maxW="max-w-4xl">
+    {record && (
+      <>
+        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-100">
+          <div>
+            <p className="font-semibold text-gray-900">Borrowing Details</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {record.student.displayName} - {record.books.length} book{record.books.length === 1 ? '' : 's'} borrowed
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition-colors"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5 overflow-y-auto">
+          <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4">
+            <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+              <div className="flex flex-col items-center text-center">
+                <div className="w-24 h-24 rounded-2xl bg-white border border-amber-100 flex items-center justify-center overflow-hidden">
+                  {record.student.photoUrl
+                    ? <img src={record.student.photoUrl} alt={record.student.displayName} className="w-full h-full object-cover" />
+                    : <UserRound className="w-11 h-11 text-amber-200" />}
+                </div>
+                <p className="mt-3 text-sm font-semibold text-gray-900">{record.student.displayName}</p>
+                <p className="text-xs text-gray-500">
+                  {record.student.gradeLevel || 'Student'}{record.student.section ? ` - ${record.student.section}` : ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Borrowed</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{formatDateTime(record.borrowedAt)}</p>
+              </div>
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Return Date</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{formatDateTime(record.dueAt)}</p>
+              </div>
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Approved By</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{record.approvedBy || 'Librarian'}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Book</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Copy</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Barcode</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {record.books.map((book) => (
+                  <tr key={book.barcode}>
+                    <td className="px-4 py-3">
+                      <p className="text-sm font-medium text-gray-900">{book.title}</p>
+                      <p className="text-xs text-gray-400">{book.author || 'Unknown author'}</p>
+                    </td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      <p className="text-sm text-gray-700">Copy {book.copyNumber}</p>
+                      <p className="text-xs text-gray-400">{book.accession ? `Acc. ${book.accession}` : 'No accession'}</p>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <span className="font-mono text-xs font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">{book.barcode}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row gap-3 sm:justify-end">
+          <button
+            type="button"
+            onClick={() => onEditDueDate(record)}
+            className="h-11 px-4 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-white transition-colors flex items-center justify-center gap-2"
+          >
+            <Pencil className="w-4 h-4" />
+            Edit Return Date
+          </button>
+          <button
+            type="button"
+            onClick={() => onReturn(record)}
+            className="h-11 px-4 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <Trash2 className="w-4 h-4" />
+            Mark Returned
+          </button>
+        </div>
+      </>
+    )}
+  </Modal>
+);
+
 export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
   const [books, setBooks] = useState<BookRecord[]>([]);
   const [records, setRecords] = useState<CirculationRecord[]>([]);
@@ -503,6 +725,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
   const [approving, setApproving] = useState(false);
   const [editRecord, setEditRecord] = useState<CirculationRecord | null>(null);
   const [returnRecord, setReturnRecord] = useState<CirculationRecord | null>(null);
+  const [detailsRecord, setDetailsRecord] = useState<CirculationRecord | null>(null);
   const [actionMsg, setActionMsg] = useState('');
 
   const scannerRef = useRef<HTMLInputElement>(null);
@@ -517,6 +740,19 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
     [records],
   );
 
+  const activeBookBarcodes = useMemo(() => {
+    const set = new Set<string>();
+    activeRecords.forEach((record) => {
+      record.books.forEach((book) => set.add(book.barcode.toLowerCase()));
+    });
+    return set;
+  }, [activeRecords]);
+
+  const booksOut = useMemo(
+    () => activeRecords.reduce((sum, record) => sum + record.books.length, 0),
+    [activeRecords],
+  );
+
   const returnedToday = useMemo(() => {
     const todayKey = toDateKey(new Date());
     return records.filter((record) =>
@@ -527,7 +763,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
   }, [records]);
 
   const scannedMode: ScanMode = activeStudent ? 'book' : 'student';
-  const scannerEnabled = !approving && !editRecord && !returnRecord;
+  const scannerEnabled = !approving && !editRecord && !returnRecord && !detailsRecord;
 
   const focusScanner = useCallback(() => {
     if (!scannerEnabled) return;
@@ -547,7 +783,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
         readDatabaseOnline<CirculationStore>(CIRCULATION_TABLE),
       ]);
       setBooks(Array.isArray(bookPayload?.books) ? bookPayload.books : []);
-      setRecords(Array.isArray(circulationPayload?.records) ? circulationPayload.records : []);
+      setRecords(normalizeCirculationRecords(circulationPayload?.records));
     } catch (error) {
       console.error('Failed to load circulation data:', error);
       setScanError('Could not load circulation data. Refresh and try again.');
@@ -619,9 +855,11 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
       return;
     }
 
-    const existingBorrow = activeRecords.find((record) => record.book.barcode.toLowerCase() === draft.key);
-    if (existingBorrow) {
-      setScanError(`${draft.book.title} copy ${draft.copyNumber} is already borrowed by ${existingBorrow.student.displayName}.`);
+    if (activeBookBarcodes.has(draft.key.toLowerCase())) {
+      const currentBorrower = activeRecords.find((record) =>
+        record.books.some((book) => book.barcode.toLowerCase() === draft.key.toLowerCase()),
+      );
+      setScanError(`${draft.book.title} copy ${draft.copyNumber} is already borrowed by ${currentBorrower?.student.displayName || 'another student'}.`);
       return;
     }
 
@@ -668,7 +906,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
       processingRef.current = false;
       focusScanner();
     }
-  }, [activeRecords, books, draftBooks, focusScanner, scannedMode]);
+  }, [activeBookBarcodes, activeRecords, books, draftBooks, focusScanner, scannedMode]);
 
   const handleScannerChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -699,50 +937,39 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
     focusScanner();
   };
 
-  const approveDraft = (borrowedAt: string) => {
+  const approveDraft = (dueAt: string) => {
     if (!activeStudent || draftBooks.length === 0) return;
 
     const nowIso = new Date().toISOString();
-    const nextRecords: CirculationRecord[] = [
-      ...draftBooks.map((draft) => ({
-        id: newRecordId(),
-        status: 'borrowed' as const,
-        borrowedAt,
-        approvedAt: nowIso,
-        approvedBy: user.displayName || user.username,
-        returnedAt: null,
-        student: activeStudent,
-        book: {
-          id: draft.book.id,
-          bookId: draft.book.bookId,
-          barcode: draft.barcode,
-          copyNumber: draft.copyNumber,
-          accession: draft.accession,
-          title: draft.book.title,
-          author: draft.book.author,
-          callNo: draft.book.callNo,
-          isbn: draft.book.isbn,
-        },
-      })),
-      ...records,
-    ];
+    const record: CirculationRecord = {
+      id: newRecordId(),
+      status: 'borrowed',
+      borrowedAt: nowIso,
+      dueAt,
+      approvedAt: nowIso,
+      approvedBy: user.displayName || user.username,
+      returnedAt: null,
+      student: activeStudent,
+      books: draftBooks.map(toBookSnapshot),
+    };
 
-    persistRecords(nextRecords);
+    persistRecords([record, ...records]);
     flash(`${draftBooks.length} book${draftBooks.length === 1 ? '' : 's'} approved for ${activeStudent.displayName}.`);
     setApproving(false);
     resetStudentSession();
   };
 
-  const updateBorrowedDate = (borrowedAt: string) => {
+  const updateDueDate = (dueAt: string) => {
     if (!editRecord) return;
     const next = records.map((record) =>
       record.id === editRecord.id
-        ? { ...record, borrowedAt, updatedAt: new Date().toISOString() }
+        ? { ...record, dueAt, updatedAt: new Date().toISOString() }
         : record,
     );
     persistRecords(next);
-    flash('Borrow date and time updated.');
+    flash('Return date and time updated.');
     setEditRecord(null);
+    setDetailsRecord((current) => current && current.id === editRecord.id ? { ...current, dueAt } : current);
     focusScanner();
   };
 
@@ -755,9 +982,20 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
         : record,
     );
     persistRecords(next);
-    flash(`${returnRecord.book.title} marked as returned.`);
+    flash(`${returnRecord.student.displayName}'s borrowing record marked as returned.`);
     setReturnRecord(null);
+    setDetailsRecord(null);
     focusScanner();
+  };
+
+  const openEditFromDetails = (record: CirculationRecord) => {
+    setDetailsRecord(null);
+    setEditRecord(record);
+  };
+
+  const openReturnFromDetails = (record: CirculationRecord) => {
+    setDetailsRecord(null);
+    setReturnRecord(record);
   };
 
   return (
@@ -782,7 +1020,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
             <div className="min-w-0">
               <h3 className="font-semibold text-gray-900">Circulation</h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Scan a student ID first, then scan each book copy for approval.
+                Scan a student ID first, scan each book copy, then set the future return date.
               </p>
             </div>
           </div>
@@ -810,17 +1048,17 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat label="Currently Borrowed" value={activeRecords.length} icon={BookMarked} tone="bg-blue-50 text-blue-700" />
+        <Stat label="Active Records" value={activeRecords.length} icon={BookMarked} tone="bg-blue-50 text-blue-700" />
+        <Stat label="Books Out" value={booksOut} icon={BookOpen} tone="bg-amber-50 text-amber-700" />
         <Stat label="Returned Today" value={returnedToday} icon={RotateCcw} tone="bg-green-50 text-green-700" />
-        <Stat label="Catalog Titles" value={books.length} icon={BookOpen} tone="bg-amber-50 text-amber-700" />
         <Stat label="Scanner Mode" value={scannedMode === 'student' ? 'Student' : 'Book'} icon={ScanLine} tone="bg-slate-50 text-slate-700" />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center gap-2">
           <div className="flex-1">
-            <p className="font-semibold text-gray-900 text-sm">Currently Borrowed</p>
-            <p className="text-xs text-gray-400 mt-0.5">Edit the borrow date/time, or remove a row to mark it as returned.</p>
+            <p className="font-semibold text-gray-900 text-sm">Active Borrowing Records</p>
+            <p className="text-xs text-gray-400 mt-0.5">Each row is one student borrowing session. Click a row to see the books.</p>
           </div>
           <span className="text-xs text-gray-400">{activeRecords.length} active record{activeRecords.length === 1 ? '' : 's'}</span>
         </div>
@@ -830,7 +1068,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
         ) : activeRecords.length === 0 ? (
           <div className="p-10 text-center">
             <BookMarked className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">No books are currently borrowed.</p>
+            <p className="text-sm text-gray-500">No active borrowing records.</p>
             <p className="text-xs text-gray-400 mt-1">Keep this page open and scan a student ID to begin.</p>
           </div>
         ) : (
@@ -839,16 +1077,28 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Student</th>
-                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Book / Copy</th>
-                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Barcode</th>
-                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Borrowed</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Books</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Borrowed</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Return Date</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {activeRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-amber-50/30 transition-colors">
-                    <td className="px-4 py-3 min-w-[190px]">
+                  <tr
+                    key={record.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setDetailsRecord(record)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setDetailsRecord(record);
+                      }
+                    }}
+                    className="hover:bg-amber-50/30 transition-colors cursor-pointer focus:outline-none focus:bg-amber-50/50"
+                  >
+                    <td className="px-4 py-3 min-w-[210px]">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center overflow-hidden flex-shrink-0">
                           {record.student.photoUrl
@@ -863,37 +1113,43 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 min-w-[220px]">
-                      <p className="text-sm font-medium text-gray-900">{record.book.title}</p>
-                      <p className="text-xs text-gray-400">
-                        Copy {record.book.copyNumber}{record.book.accession ? ` - Acc. ${record.book.accession}` : ''}
-                      </p>
+                    <td className="px-4 py-3 min-w-[190px]">
+                      <p className="text-sm font-semibold text-gray-900">{record.books.length} book{record.books.length === 1 ? '' : 's'}</p>
+                      <p className="text-xs text-gray-400 truncate">{record.books[0]?.title}{record.books.length > 1 ? ` +${record.books.length - 1} more` : ''}</p>
                     </td>
-                    <td className="px-4 py-3 hidden lg:table-cell">
-                      <span className="font-mono text-xs font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">{record.book.barcode}</span>
-                    </td>
-                    <td className="px-4 py-3 min-w-[160px]">
+                    <td className="px-4 py-3 hidden lg:table-cell min-w-[160px]">
                       <p className="text-sm text-gray-700">{formatDateTime(record.borrowedAt)}</p>
                       <p className="text-xs text-gray-400">Approved by {record.approvedBy || 'Librarian'}</p>
+                    </td>
+                    <td className="px-4 py-3 min-w-[160px]">
+                      <p className="text-sm font-medium text-gray-800">{formatDateTime(record.dueAt)}</p>
+                      <p className="text-xs text-gray-400">Expected return</p>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
                         <button
                           type="button"
-                          onClick={() => setEditRecord(record)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditRecord(record);
+                          }}
                           className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-blue-500 hover:bg-blue-50 transition-colors"
-                          title="Edit borrow date and time"
+                          title="Edit return date and time"
                         >
                           <Pencil size={15} />
                         </button>
                         <button
                           type="button"
-                          onClick={() => setReturnRecord(record)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setReturnRecord(record);
+                          }}
                           className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
                           title="Mark as returned"
                         >
                           <Trash2 size={15} />
                         </button>
+                        <ChevronRight className="w-4 h-4 text-gray-300 hidden sm:block" />
                       </div>
                     </td>
                   </tr>
@@ -910,7 +1166,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
                 <p className="font-semibold text-gray-900">Borrowing Approval</p>
-                <p className="text-xs text-gray-400 mt-0.5">Scan book barcodes, then approve the full list.</p>
+                <p className="text-xs text-gray-400 mt-0.5">Scan book barcodes, then set the return date for this borrowing.</p>
               </div>
               <button
                 type="button"
@@ -958,7 +1214,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
                   <div className="flex-1">
                     <p className="font-semibold text-gray-900">Books to Borrow</p>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Scanner mode is set to books until this approval is closed.
+                      All scanned books will be saved as one borrowing record for this student.
                     </p>
                   </div>
                   <div className="px-3 py-2 rounded-lg border border-amber-100 bg-amber-50 text-amber-800 text-sm font-medium flex items-center gap-2">
@@ -1030,7 +1286,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
                     className="h-11 px-5 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    Approve {draftBooks.length > 0 ? `(${draftBooks.length})` : ''}
+                    Set Return Date {draftBooks.length > 0 ? `(${draftBooks.length})` : ''}
                   </button>
                 </div>
               </section>
@@ -1039,10 +1295,10 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
         )}
       </Modal>
 
-      <DateTimePickerModal
+      <FutureDateTimePickerModal
         open={approving}
-        title="Approve Borrowing"
-        description="Choose the recorded borrow date. Today requires an exact time."
+        title="Set Return Date"
+        description="Choose when these books should be returned. Past dates are not accepted."
         confirmLabel="Record Borrowing"
         onConfirm={approveDraft}
         onCancel={() => {
@@ -1051,27 +1307,37 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
         }}
       />
 
-      <DateTimePickerModal
+      <FutureDateTimePickerModal
         open={!!editRecord}
-        title="Edit Borrow Date"
-        description="Adjust the saved date and time for this borrowed book."
-        initialValue={editRecord?.borrowedAt}
-        confirmLabel="Save Date"
-        onConfirm={updateBorrowedDate}
+        title="Edit Return Date"
+        description="Choose a new future return date and time for this borrowing record."
+        initialValue={editRecord?.dueAt}
+        confirmLabel="Save Return Date"
+        onConfirm={updateDueDate}
         onCancel={() => {
           setEditRecord(null);
           focusScanner();
         }}
       />
 
+      <BooksDetailModal
+        record={detailsRecord}
+        onClose={() => {
+          setDetailsRecord(null);
+          focusScanner();
+        }}
+        onEditDueDate={openEditFromDetails}
+        onReturn={openReturnFromDetails}
+      />
+
       <ConfirmDialog
         open={!!returnRecord}
-        title="Mark as returned"
+        title="Mark borrowing as returned"
         intent="danger"
         message={
           <>
-            Remove <span className="font-medium text-gray-700">{returnRecord?.book.title}</span> from the active borrowed list?
-            The record will be kept and marked as returned.
+            Mark <span className="font-medium text-gray-700">{returnRecord?.student.displayName}</span>'s borrowing record
+            with {returnRecord?.books.length || 0} book{returnRecord?.books.length === 1 ? '' : 's'} as returned?
           </>
         }
         confirmLabel="Mark Returned"

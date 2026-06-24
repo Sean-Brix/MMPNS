@@ -54,6 +54,23 @@ export const createAccount = (data: Record<string, any>) =>
     body: JSON.stringify(data),
   });
 
+export interface BatchStudentResult {
+  index: number;
+  status: 'success' | 'failed';
+  uid?: string;
+  studentCode?: string;
+  error?: string;
+}
+
+// Registers many students in a single request (one batched Firestore write
+// server-side) instead of one HTTP call per student.
+export const createStudentsBatch = (students: Record<string, any>[]) =>
+  apiFetch<{ success: boolean; created: any[]; results: BatchStudentResult[] }>('/accounts/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ students }),
+  });
+
 export const updateAccountStatus = (uid: string, status: 'active' | 'inactive') =>
   apiFetch<{ success: boolean }>(`/accounts/${uid}/status`, {
     method: 'PATCH',
