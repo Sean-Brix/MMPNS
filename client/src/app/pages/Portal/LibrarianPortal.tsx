@@ -5,7 +5,9 @@ import {
   BookCopy, Users, TrendingUp,
 } from 'lucide-react';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
+import { BookManagement } from '../../components/librarian/BookManagement';
 import { getStoredSession, logout, type UserProfile } from '../../../utils/auth';
+import { initializeDatabase } from '../../../utils/database';
 import { useNavigate } from 'react-router';
 
 const MENU_ITEMS: SidebarItem[] = [
@@ -94,6 +96,7 @@ export const LibrarianPortal: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    void initializeDatabase();
     const session = getStoredSession();
     if (session?.role === 'librarian') {
       setIsAuthenticated(true);
@@ -124,7 +127,7 @@ export const LibrarianPortal: React.FC = () => {
   const renderSection = () => {
     switch (activeSection) {
       case 'catalog':
-        return <EmptySection title="Books Catalog" description="No books added yet. Start by adding books to the catalog." icon={BookOpen} />;
+        return <BookManagement />;
       case 'borrowed':
         return <EmptySection title="Borrowed Books" description="No books are currently borrowed." icon={BookMarked} />;
       case 'due':

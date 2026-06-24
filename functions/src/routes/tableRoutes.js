@@ -13,6 +13,8 @@ const {
 const router = express.Router();
 
 const tableWriteRoles = ["teacher", "admin", "superadmin", "principal"];
+// Librarians manage the books catalog, so they may also write that one table.
+const bookTableWriteRoles = [...tableWriteRoles, "librarian"];
 const developerRoles = new Set(["admin", "superadmin"]);
 
 const isCredentialsTable = (req) => req.params.table === "credentials";
@@ -50,7 +52,8 @@ const requireTableWrite = (req, res, next) => {
     return;
   }
 
-  requireAuth(tableWriteRoles)(req, res, next);
+  const roles = req.params.table === "books" ? bookTableWriteRoles : tableWriteRoles;
+  requireAuth(roles)(req, res, next);
 };
 
 const requireSeedRead = (req, res, next) => {
