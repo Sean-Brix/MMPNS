@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   UserPlus, X, Search, Users, QrCode, Download,
   RefreshCw, CheckCircle2, Camera, Pencil, Trash2, AlertTriangle,
-  Upload, FileDown,
+  Upload, FileDown, Save,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
@@ -11,6 +11,10 @@ import {
   updateAccountProfile, uploadStudentPhoto,
 } from '../../../utils/apiClient';
 import { Modal, inputClass, labelClass } from './shared';
+import {
+  useRowSelection, SelectCheckbox, BulkEditField, ConfirmDialog,
+  runBulk, summarizeBulk,
+} from '../common/BulkActions';
 import { BulkStudentImport } from './BulkStudentImport';
 import { ExportIdCodesModal } from './ExportIdCodesModal';
 
@@ -570,6 +574,15 @@ export const StudentRegistration: React.FC = () => {
   const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
   const [deleteStudent, setDeleteStudent] = useState<StudentRecord | null>(null);
 
+  // Bulk selection / editing
+  const selection = useRowSelection<string>();
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkValues, setBulkValues] = useState<Record<string, string>>({});
+  const [bulkEnabled, setBulkEnabled] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState<null | 'edit' | 'delete'>(null);
+  const [bulkMsg, setBulkMsg] = useState('');
+
   const loadStudents = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -613,6 +626,92 @@ export const StudentRegistration: React.FC = () => {
     await deleteAccount(deleteStudent.uid);
     setStudents((p) => p.filter((s) => s.uid !== deleteStudent.uid));
     setDeleteStudent(null);
+  };
+
+  // ─── Bulk selection / editing ─────────────────────────────────────────────────
+  const selectedStudents = useMemo(
+    () => filtered.filter((s) => selection.isSelected(s.uid)),
+    [filtered, selection.isSelected],
+  );
+
+  // Drop selections for students no longer in the filtered view.
+  useEffect(() => {
+    selection.retain(filtered.map((s) => s.uid));
+  }, [filtered, selection.retain]);
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every((s) => selection.isSelected(s.uid));
+  const someVisibleSelected = filtered.some((s) => selection.isSelected(s.uid));
+
+  // Non-unique fields safe to share across students. LRN / login code / system ID
+  // are unique per student and are intentionally not bulk-editable.
+  const BULK_FIELDS: Array<{ key: string; label: string; placeholder?: string }> = [
+    { key: 'gradeLevel', label: 'Grade Level', placeholder: 'e.g. Grade 7' },
+    { key: 'section', label: 'Section', placeholder: 'e.g. St. Anne' },
+    { key: 'province', label: 'Province' },
+    { key: 'city', label: 'City / Municipality' },
+  ];
+
+  const openBulkEdit = () => {
+    setBulkValues({});
+    setBulkEnabled(new Set());
+    setBulkEditOpen(true);
+  };
+
+  const toggleBulkField = (key: string, enabled: boolean) => {
+    setBulkEnabled((prev) => {
+      const next = new Set(prev);
+      if (enabled) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const performBulkEdit = async () => {
+    const payload: Record<string, any> = {};
+    bulkEnabled.forEach((key) => { payload[key] = (bulkValues[key] || '').trim(); });
+    const targets = selectedStudents.map((s) => s.uid);
+    setBulkBusy(true);
+    try {
+      const updatedById = new Map<string, any>();
+      const result = await runBulk(targets, async (uid) => {
+        const res = await updateAccountProfile(uid, payload);
+        updatedById.set(uid, res.user);
+      });
+      setStudents((prev) => prev.map((s) => {
+        const updated = updatedById.get(s.uid);
+        return updated ? { ...s, ...updated } : s;
+      }));
+      setBulkMsg(summarizeBulk('Updated', result).replace(/account/g, 'student'));
+    } catch (err: any) {
+      setBulkMsg(`Error: ${err?.message || 'Bulk update failed.'}`);
+    } finally {
+      setBulkBusy(false);
+      setConfirmBulk(null);
+      setBulkEditOpen(false);
+      selection.clear();
+      setTimeout(() => setBulkMsg(''), 5000);
+    }
+  };
+
+  const performBulkDelete = async () => {
+    const targets = selectedStudents.map((s) => s.uid);
+    setBulkBusy(true);
+    try {
+      const succeeded = new Set<string>();
+      const result = await runBulk(targets, async (uid) => {
+        await deleteAccount(uid);
+        succeeded.add(uid);
+      });
+      setStudents((prev) => prev.filter((s) => !succeeded.has(s.uid)));
+      setBulkMsg(summarizeBulk('Deleted', result).replace(/account/g, 'student'));
+    } catch (err: any) {
+      setBulkMsg(`Error: ${err?.message || 'Bulk delete failed.'}`);
+    } finally {
+      setBulkBusy(false);
+      setConfirmBulk(null);
+      selection.clear();
+      setTimeout(() => setBulkMsg(''), 5000);
+    }
   };
 
   return (
@@ -670,6 +769,36 @@ export const StudentRegistration: React.FC = () => {
           <span className="text-xs text-gray-400 whitespace-nowrap">{filtered.length} student{filtered.length !== 1 ? 's' : ''}</span>
         </div>
 
+        {/* Bulk action bar */}
+        {selection.count > 0 && (
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-purple-50 border-b border-purple-100">
+            <span className="text-sm font-medium text-purple-800">{selection.count} selected</span>
+            <button
+              onClick={openBulkEdit}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-700 text-white text-xs font-medium hover:bg-purple-800 transition-colors"
+            >
+              <Pencil size={13} /> Edit selected
+            </button>
+            <button
+              onClick={() => setConfirmBulk('delete')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition-colors"
+            >
+              <Trash2 size={13} /> Delete selected
+            </button>
+            <button
+              onClick={() => selection.clear()}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-white/60 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
+        {/* Bulk feedback */}
+        {bulkMsg && (
+          <div className="px-4 py-2.5 bg-green-50 border-b border-green-100 text-sm text-green-800">{bulkMsg}</div>
+        )}
+
         {isLoading ? (
           <div className="p-10 text-center text-gray-400 text-sm">Loading students...</div>
         ) : filtered.length === 0 ? (
@@ -682,6 +811,15 @@ export const StudentRegistration: React.FC = () => {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="w-10 px-4 py-3">
+                    <SelectCheckbox
+                      checked={allVisibleSelected}
+                      indeterminate={someVisibleSelected}
+                      onChange={() => selection.setMany(filtered.map((s) => s.uid), !allVisibleSelected)}
+                      className="accent-purple-700"
+                      ariaLabel="Select all students"
+                    />
+                  </th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Name</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">LRN</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Grade Level</th>
@@ -693,7 +831,15 @@ export const StudentRegistration: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map((s) => (
-                  <tr key={s.uid} className="hover:bg-purple-50/30 transition-colors">
+                  <tr key={s.uid} className={`transition-colors ${selection.isSelected(s.uid) ? 'bg-purple-50/60' : 'hover:bg-purple-50/30'}`}>
+                    <td className="px-4 py-3">
+                      <SelectCheckbox
+                        checked={selection.isSelected(s.uid)}
+                        onChange={() => selection.toggle(s.uid)}
+                        className="accent-purple-700"
+                        ariaLabel={`Select ${s.displayName}`}
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
@@ -815,6 +961,76 @@ export const StudentRegistration: React.FC = () => {
         open={showExportModal}
         onClose={() => setShowExportModal(false)}
         students={students}
+      />
+
+      {/* Bulk edit modal */}
+      <Modal open={bulkEditOpen} onClose={() => setBulkEditOpen(false)} maxW="max-w-xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <p className="font-semibold text-gray-900">Edit {selection.count} student{selection.count === 1 ? '' : 's'}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Enable a field to apply the same value to all selected students.</p>
+          </div>
+          <button onClick={() => setBulkEditOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-3 overflow-y-auto">
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            LRN, login code and system ID are unique per student and can't be bulk-edited.
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {BULK_FIELDS.map((field) => (
+              <BulkEditField
+                key={field.key}
+                label={field.label}
+                enabled={bulkEnabled.has(field.key)}
+                onToggle={(en) => toggleBulkField(field.key, en)}
+                accentClass="accent-purple-700"
+              >
+                <input
+                  value={bulkValues[field.key] || ''}
+                  onChange={(e) => setBulkValues((p) => ({ ...p, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder}
+                  className={inputClass}
+                />
+              </BulkEditField>
+            ))}
+          </div>
+        </div>
+        <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex gap-3 justify-end">
+          <button onClick={() => setBulkEditOpen(false)} className="px-4 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-white transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={() => setConfirmBulk('edit')}
+            disabled={bulkEnabled.size === 0}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-50 transition-colors"
+          >
+            <Save size={14} /> Apply to {selection.count} student{selection.count === 1 ? '' : 's'}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Bulk confirmations */}
+      <ConfirmDialog
+        open={confirmBulk === 'edit'}
+        title="Apply bulk changes"
+        message={`Apply the selected field changes to ${selection.count} student${selection.count === 1 ? '' : 's'}?`}
+        confirmLabel="Apply changes"
+        intent="primary"
+        busy={bulkBusy}
+        onConfirm={performBulkEdit}
+        onCancel={() => setConfirmBulk(null)}
+      />
+      <ConfirmDialog
+        open={confirmBulk === 'delete'}
+        title="Delete students"
+        intent="danger"
+        message={`Permanently delete ${selection.count} student${selection.count === 1 ? '' : 's'}? This cannot be undone.`}
+        confirmLabel="Delete"
+        busy={bulkBusy}
+        onConfirm={performBulkDelete}
+        onCancel={() => setConfirmBulk(null)}
       />
     </div>
   );

@@ -31,6 +31,7 @@ const saveAdminSession = (_c: AdminCredential, _t: string) => undefined;
 import { initializeDatabase, readDatabase, readSeedSnapshotOnline, writeDatabase } from '../../../utils/database';
 import { HOME_IMAGE_EDIT_MODE_KEY, HOME_IMAGE_STORAGE_KEY } from '../../../utils/homeImageSlots';
 import { useAppNavigate } from '../../hooks/useAppNavigate';
+import { useRowSelection, SelectCheckbox, BulkEditField } from '../../components/common/BulkActions';
 
 type DeveloperTab = 'seeding' | 'userManagement' | 'settings';
 type BannerType = 'success' | 'error' | 'info';
@@ -372,6 +373,12 @@ export const Developer: React.FC = () => {
   const [accountForm, setAccountForm] = useState<AccountFormState>(() => createEmptyAccountForm('teacher'));
   const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+
+  // Bulk selection / editing (composite ids: `${accountType}-${id}`)
+  const selection = useRowSelection<string>();
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkValues, setBulkValues] = useState<Record<string, string>>({});
+  const [bulkEnabled, setBulkEnabled] = useState<Set<string>>(new Set());
 
   const [facebookAccessToken, setFacebookAccessToken] = useState('');
   const [facebookTokenSaved, setFacebookTokenSaved] = useState(false);
@@ -1005,6 +1012,148 @@ export const Developer: React.FC = () => {
     });
   };
 
+  // ─── Bulk selection / editing ───────────────────────────────────────────────
+  // Composite row id keeps teachers/students/admins distinct (ids only unique
+  // within their own array). The active admin can never be bulk-selected.
+  const bulkRowId = (accountType: AccountType, account: any) => `${accountType}-${account.id}`;
+
+  const isRowSelectable = (accountType: AccountType, account: any) =>
+    !(accountType === 'admins' && session?.id === account.id);
+
+  const parseRowId = (rowId: string): { accountType: AccountType; id: number } => {
+    const idx = rowId.indexOf('-');
+    return { accountType: rowId.slice(0, idx) as AccountType, id: Number(rowId.slice(idx + 1)) };
+  };
+
+  // Non-unique fields safe to share. Username / student ID / email / employee ID
+  // are unique per account and are intentionally omitted.
+  const bulkFieldsForType: Record<string, AccountType[]> = {
+    status: ['admins', 'teachers', 'students'],
+    department: ['teachers'],
+    position: ['teachers'],
+    gradeLevel: ['students'],
+    section: ['students'],
+  };
+
+  const openBulkEdit = () => {
+    setBulkValues({ status: 'active' });
+    setBulkEnabled(new Set());
+    setBulkEditOpen(true);
+  };
+
+  const toggleBulkField = (key: string, enabled: boolean) => {
+    setBulkEnabled((prev) => {
+      const next = new Set(prev);
+      if (enabled) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const applyBulkEdit = () => {
+    const credentials = getCredentialsDb();
+    const next: CredentialsDb = {
+      ...credentials,
+      admins: [...(credentials.admins || [])],
+      teachers: [...(credentials.teachers || [])],
+      students: [...(credentials.students || [])],
+    };
+
+    const selectedRows = selection.selected.map(parseRowId);
+    let changed = 0;
+
+    selectedRows.forEach(({ accountType, id }) => {
+      if (!isRowSelectable(accountType, { id })) return;
+      const arr = next[accountType] as any[];
+      const index = arr.findIndex((account) => account.id === id);
+      if (index < 0) return;
+
+      const patch: Record<string, any> = {};
+      bulkEnabled.forEach((key) => {
+        if (!bulkFieldsForType[key]?.includes(accountType)) return;
+        patch[key] = key === 'status' ? (bulkValues.status || 'active') : (bulkValues[key] || '').trim();
+      });
+
+      if (Object.keys(patch).length === 0) return;
+      arr[index] = { ...arr[index], ...patch };
+      changed += 1;
+    });
+
+    if (changed === 0) {
+      showBanner('info', 'No matching fields to apply for the selected accounts.');
+      return;
+    }
+
+    const success = writeDatabase('credentials', next);
+    if (!success) {
+      showBanner('error', 'Failed to apply bulk changes.');
+      return;
+    }
+
+    showBanner('success', `Updated ${changed} account${changed === 1 ? '' : 's'}.`);
+    setBulkEditOpen(false);
+    selection.clear();
+    refreshCounts();
+  };
+
+  const requestBulkEdit = () => {
+    if (bulkEnabled.size === 0) return;
+    openConfirm({
+      title: 'Apply bulk changes',
+      message: `Apply the selected field changes to ${selection.count} account${selection.count === 1 ? '' : 's'}? Fields that don't match an account type are skipped.`,
+      confirmLabel: 'Apply changes',
+      intent: 'primary',
+      action: applyBulkEdit,
+    });
+  };
+
+  const performBulkDelete = () => {
+    const credentials = getCredentialsDb();
+    const selectedRows = selection.selected.map(parseRowId)
+        .filter(({ accountType, id }) => isRowSelectable(accountType, { id }));
+
+    const removeIds: Record<AccountType, Set<number>> = {
+      admins: new Set(),
+      teachers: new Set(),
+      students: new Set(),
+    };
+    selectedRows.forEach(({ accountType, id }) => removeIds[accountType].add(id));
+
+    const remainingAdmins = (credentials.admins || []).filter((admin) => !removeIds.admins.has(admin.id));
+    if (remainingAdmins.length === 0) {
+      showBanner('error', 'At least one admin account must remain.');
+      return;
+    }
+
+    const next: CredentialsDb = {
+      ...credentials,
+      admins: remainingAdmins,
+      teachers: (credentials.teachers || []).filter((teacher: any) => !removeIds.teachers.has(teacher.id)),
+      students: (credentials.students || []).filter((student: any) => !removeIds.students.has(student.id)),
+    };
+
+    const success = writeDatabase('credentials', next);
+    if (!success) {
+      showBanner('error', 'Failed to delete selected accounts.');
+      return;
+    }
+
+    const total = removeIds.admins.size + removeIds.teachers.size + removeIds.students.size;
+    showBanner('success', `Deleted ${total} account${total === 1 ? '' : 's'}.`);
+    selection.clear();
+    refreshCounts();
+  };
+
+  const requestBulkDelete = () => {
+    openConfirm({
+      title: 'Delete accounts',
+      message: `Permanently delete ${selection.count} account${selection.count === 1 ? '' : 's'}? This cannot be undone.`,
+      confirmLabel: 'Delete accounts',
+      intent: 'danger',
+      action: performBulkDelete,
+    });
+  };
+
   const updateAdminCredentials = () => {
     if (!session) {
       showBanner('error', 'No active admin session found.');
@@ -1109,6 +1258,17 @@ export const Developer: React.FC = () => {
       account,
     }))
   ));
+
+  const selectableRows = managedAccounts.filter(({ accountType, account }) => isRowSelectable(accountType, account));
+  const selectableRowIds = selectableRows.map(({ accountType, account }) => bulkRowId(accountType, account));
+  const allRowsSelected = selectableRowIds.length > 0 && selectableRowIds.every((id) => selection.isSelected(id));
+  const someRowsSelected = selectableRowIds.some((id) => selection.isSelected(id));
+
+  // Drop selections for rows that no longer exist (after edits / deletes / seeding).
+  useEffect(() => {
+    selection.retain(selectableRowIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectableRowIds.join('|')]);
 
   if (isLoading) {
     return (
@@ -1404,6 +1564,33 @@ export const Developer: React.FC = () => {
                     </div>
                   </div>
 
+                  {selection.count > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 px-5 py-2.5 bg-[#185C20]/5 border-b border-[#185C20]/10">
+                      <span className="text-sm font-semibold text-[#185C20]">{selection.count} selected</span>
+                      <button
+                        type="button"
+                        onClick={openBulkEdit}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#185C20] text-white text-xs font-semibold hover:bg-[#144a1a]"
+                      >
+                        <Pencil size={13} /> Edit selected
+                      </button>
+                      <button
+                        type="button"
+                        onClick={requestBulkDelete}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700"
+                      >
+                        <Trash2 size={13} /> Delete selected
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selection.clear()}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#185C20]/70 hover:bg-[#185C20]/10"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+
                   {managedAccounts.length === 0 ? (
                     <div className="px-5 py-8 text-center text-sm text-[#185C20]/50 font-semibold">
                       No accounts found.
@@ -1413,6 +1600,16 @@ export const Developer: React.FC = () => {
                       <table className="w-full text-sm">
                         <thead className="bg-[#185C20]/5 text-[#185C20]/60">
                           <tr>
+                            <th className="w-10 px-5 py-3">
+                              <SelectCheckbox
+                                checked={allRowsSelected}
+                                indeterminate={someRowsSelected}
+                                onChange={() => selection.setMany(selectableRowIds, !allRowsSelected)}
+                                disabled={selectableRowIds.length === 0}
+                                className="accent-[#185C20]"
+                                ariaLabel="Select all accounts"
+                              />
+                            </th>
                             <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Name</th>
                             <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Type</th>
                             <th className="text-left px-5 py-3 font-bold text-[11px] uppercase tracking-wider">Login</th>
@@ -1422,8 +1619,21 @@ export const Developer: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#185C20]/10">
-                          {managedAccounts.map(({ accountType, account }) => (
-                            <tr key={`${accountType}-${account.id}`}>
+                          {managedAccounts.map(({ accountType, account }) => {
+                            const rowId = bulkRowId(accountType, account);
+                            const selectable = isRowSelectable(accountType, account);
+                            return (
+                            <tr key={rowId} className={selection.isSelected(rowId) ? 'bg-[#185C20]/[0.04]' : ''}>
+                              <td className="px-5 py-3">
+                                <SelectCheckbox
+                                  checked={selection.isSelected(rowId)}
+                                  onChange={() => selection.toggle(rowId)}
+                                  disabled={!selectable}
+                                  className="accent-[#185C20]"
+                                  title={selectable ? 'Select account' : 'You cannot bulk-edit the account you are signed in with'}
+                                  ariaLabel={`Select ${account.displayName || getAccountLogin(accountType, account)}`}
+                                />
+                              </td>
                               <td className="px-5 py-3 min-w-[220px]">
                                 <p className="font-bold text-[#185C20]">{account.displayName || getAccountLogin(accountType, account)}</p>
                                 <p className="text-xs text-[#185C20]/50">{account.email || '-'}</p>
@@ -1469,7 +1679,8 @@ export const Developer: React.FC = () => {
                                 </div>
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1837,6 +2048,95 @@ export const Developer: React.FC = () => {
               >
                 {editingAccountId === null ? <Plus size={14} /> : <Save size={14} />}
                 {editingAccountId === null ? 'Add account' : 'Save account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkEditOpen && (
+        <div className="fixed inset-0 z-[75] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setBulkEditOpen(false)}>
+          <div
+            className="w-full max-w-2xl max-h-[92vh] overflow-hidden rounded-2xl bg-white border border-[#185C20]/10 shadow-2xl flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#185C20]/10">
+              <div>
+                <h3 className="text-lg font-bold text-[#185C20]">Edit {selection.count} account{selection.count === 1 ? '' : 's'}</h3>
+                <p className="text-xs text-[#185C20]/60 mt-1">Enable a field to apply the same value to every selected account.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkEditOpen(false)}
+                className="w-8 h-8 rounded-lg hover:bg-[#185C20]/5 text-[#185C20]/50 hover:text-[#185C20] transition-colors flex items-center justify-center"
+                aria-label="Close bulk edit"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                Username / student ID, email and employee ID are unique per account and can't be bulk-edited.
+                Fields only apply to the account types shown.
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <BulkEditField
+                  label="Status"
+                  hint="All account types"
+                  enabled={bulkEnabled.has('status')}
+                  onToggle={(en) => toggleBulkField('status', en)}
+                  accentClass="accent-[#185C20]"
+                >
+                  <select
+                    value={bulkValues.status || 'active'}
+                    onChange={(e) => setBulkValues((p) => ({ ...p, status: e.target.value }))}
+                    className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20 bg-white"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </BulkEditField>
+
+                {([
+                  { key: 'department', label: 'Department', hint: 'Teachers only' },
+                  { key: 'position', label: 'Position', hint: 'Teachers only' },
+                  { key: 'gradeLevel', label: 'Grade Level', hint: 'Students only' },
+                  { key: 'section', label: 'Section', hint: 'Students only' },
+                ] as const).map((field) => (
+                  <BulkEditField
+                    key={field.key}
+                    label={field.label}
+                    hint={field.hint}
+                    enabled={bulkEnabled.has(field.key)}
+                    onToggle={(en) => toggleBulkField(field.key, en)}
+                    accentClass="accent-[#185C20]"
+                  >
+                    <input
+                      value={bulkValues[field.key] || ''}
+                      onChange={(e) => setBulkValues((p) => ({ ...p, [field.key]: e.target.value }))}
+                      className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
+                    />
+                  </BulkEditField>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-[#185C20]/10 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkEditOpen(false)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-[#185C20]/15 text-[#185C20] hover:bg-[#185C20]/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={requestBulkEdit}
+                disabled={bulkEnabled.size === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#185C20] text-white text-sm font-semibold hover:bg-[#144a1a] disabled:opacity-50"
+              >
+                <Save size={14} /> Apply to {selection.count} account{selection.count === 1 ? '' : 's'}
               </button>
             </div>
           </div>

@@ -1,12 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Users, UserPlus, Search, CheckCircle2, XCircle, RefreshCw,
-  KeyRound, Eye, EyeOff, Pencil, Save, X,
+  KeyRound, Eye, EyeOff, Pencil, Save, X, Trash2,
 } from 'lucide-react';
-import { getAccounts, updateAccountStatus, resetAccountPassword, updateAccountProfile } from '../../../utils/apiClient';
+import { getAccounts, updateAccountStatus, resetAccountPassword, updateAccountProfile, deleteAccount } from '../../../utils/apiClient';
 import { CreateAccountForm } from './CreateAccountForm';
-import type { UserRole } from '../../../utils/auth';
+import { getStoredSession, type UserRole } from '../../../utils/auth';
+import {
+  useRowSelection, SelectCheckbox, BulkEditField, ConfirmDialog,
+  runBulk, summarizeBulk,
+} from '../common/BulkActions';
 
 interface AccountManagementProps {
   callerRole: 'registrar' | 'admin' | 'superadmin';
@@ -71,6 +75,20 @@ const STAFF_DETAIL_ROLES = new Set<UserRole>(['teacher', 'principal', 'librarian
 const inputClass = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/30 focus:border-[#185C20] transition-all';
 const labelClass = 'block text-xs font-medium text-gray-700 mb-1';
 
+// Fields that are safe to apply to many accounts at once. Unique fields
+// (username/login code, email, LRN, employee ID) are intentionally excluded —
+// every account needs its own distinct value, so bulk-setting them is invalid.
+type BulkFieldKey = 'status' | 'department' | 'position' | 'gradeLevel' | 'section' | 'province' | 'city';
+
+const BULK_TEXT_FIELDS: Array<{ key: BulkFieldKey; label: string; appliesTo: 'staff' | 'student'; placeholder?: string }> = [
+  { key: 'department', label: 'Department', appliesTo: 'staff' },
+  { key: 'position',   label: 'Position',   appliesTo: 'staff' },
+  { key: 'gradeLevel', label: 'Grade Level', appliesTo: 'student', placeholder: 'e.g. Grade 7' },
+  { key: 'section',    label: 'Section',     appliesTo: 'student', placeholder: 'e.g. St. Anne' },
+  { key: 'province',   label: 'Province',    appliesTo: 'student' },
+  { key: 'city',       label: 'City',        appliesTo: 'student' },
+];
+
 const valueOf = (value: unknown) => (value === undefined || value === null ? '' : String(value));
 
 const numberOrZero = (value: string) => {
@@ -95,6 +113,15 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
   const [actionMsg, setActionMsg] = useState('');
   const [editForm, setEditForm] = useState<AccountEditForm | null>(null);
   const [editLoading, setEditLoading] = useState(false);
+
+  // Bulk selection / editing
+  const selection = useRowSelection<string>();
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkValues, setBulkValues] = useState<Record<string, string>>({});
+  const [bulkEnabled, setBulkEnabled] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState<null | 'edit' | 'delete'>(null);
+  const currentUsername = (getStoredSession()?.username || '').toLowerCase();
 
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
@@ -255,6 +282,99 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
   const uniqueRoles = Array.from(new Set(users.map((u) => u.role)));
   const editableRoles = EDITABLE_ROLES_BY_CALLER[callerRole] || [];
 
+  // ─── Bulk selection ───────────────────────────────────────────────────────────
+  const editableRoleSet = useMemo(() => new Set(editableRoles), [editableRoles]);
+
+  // A row can be bulk-selected only if the caller may edit that role, and it is
+  // not the caller's own account (protects against self-deactivation/deletion).
+  const isSelectable = useCallback(
+    (user: any) => editableRoleSet.has(user.role) && (user.username || '').toLowerCase() !== currentUsername,
+    [editableRoleSet, currentUsername],
+  );
+
+  const selectableUsers = useMemo(() => filteredUsers.filter(isSelectable), [filteredUsers, isSelectable]);
+  const selectedUsers = useMemo(
+    () => filteredUsers.filter((u) => selection.isSelected(u.uid)),
+    [filteredUsers, selection.isSelected],
+  );
+
+  // Drop selections for rows no longer visible/selectable (filter, refresh, delete).
+  useEffect(() => {
+    selection.retain(selectableUsers.map((u) => u.uid));
+  }, [selectableUsers, selection.retain]);
+
+  const allVisibleSelected = selectableUsers.length > 0 && selectableUsers.every((u) => selection.isSelected(u.uid));
+  const someVisibleSelected = selectableUsers.some((u) => selection.isSelected(u.uid));
+
+  const openBulkEdit = () => {
+    setBulkValues({ status: 'active' });
+    setBulkEnabled(new Set());
+    setBulkEditOpen(true);
+  };
+
+  const toggleBulkField = (key: string, enabled: boolean) => {
+    setBulkEnabled((prev) => {
+      const next = new Set(prev);
+      if (enabled) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const buildBulkPayload = (): Record<string, any> => {
+    const payload: Record<string, any> = {};
+    bulkEnabled.forEach((key) => {
+      const value = bulkValues[key] ?? '';
+      payload[key] = key === 'status' ? value : value.trim();
+    });
+    return payload;
+  };
+
+  const performBulkEdit = async () => {
+    const payload = buildBulkPayload();
+    const uids = selectedUsers.map((u) => u.uid);
+    setBulkBusy(true);
+    try {
+      const updatedById = new Map<string, any>();
+      const result = await runBulk(uids, async (uid) => {
+        const res = await updateAccountProfile(uid, payload);
+        updatedById.set(uid, res.user);
+      });
+      setUsers((prev) => prev.map((u) => updatedById.get(u.uid) || u));
+      setActionMsg(summarizeBulk('Updated', result));
+    } catch (err: any) {
+      setActionMsg(`Error: ${err?.message || 'Bulk update failed.'}`);
+    } finally {
+      setBulkBusy(false);
+      setConfirmBulk(null);
+      setBulkEditOpen(false);
+      selection.clear();
+      setTimeout(() => setActionMsg(''), 5000);
+    }
+  };
+
+  const performBulkDelete = async () => {
+    const targets = [...selectedUsers];
+    const uids = targets.map((u) => u.uid);
+    setBulkBusy(true);
+    try {
+      const succeeded = new Set<string>();
+      const result = await runBulk(uids, async (uid) => {
+        await deleteAccount(uid);
+        succeeded.add(uid);
+      });
+      setUsers((prev) => prev.filter((u) => !succeeded.has(u.uid)));
+      setActionMsg(summarizeBulk('Deleted', result));
+    } catch (err: any) {
+      setActionMsg(`Error: ${err?.message || 'Bulk delete failed.'}`);
+    } finally {
+      setBulkBusy(false);
+      setConfirmBulk(null);
+      selection.clear();
+      setTimeout(() => setActionMsg(''), 5000);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Action feedback */}
@@ -339,6 +459,42 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
             <span className="text-xs text-gray-400">{filteredUsers.length} account{filteredUsers.length !== 1 ? 's' : ''}</span>
           </div>
 
+          {/* Bulk action bar */}
+          <AnimatePresence>
+            {selection.count > 0 && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden bg-[#185C20]/5 border-b border-[#185C20]/10"
+              >
+                <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+                  <span className="text-sm font-medium text-[#185C20]">
+                    {selection.count} selected
+                  </span>
+                  <button
+                    onClick={openBulkEdit}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#185C20] text-white text-xs font-medium hover:bg-[#145218] transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Edit selected
+                  </button>
+                  <button
+                    onClick={() => setConfirmBulk('delete')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete selected
+                  </button>
+                  <button
+                    onClick={() => selection.clear()}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Table */}
           {isLoading ? (
             <div className="p-8 text-center text-gray-400 text-sm">Loading accounts...</div>
@@ -353,6 +509,16 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="w-10 px-4 py-3">
+                      <SelectCheckbox
+                        checked={allVisibleSelected}
+                        indeterminate={someVisibleSelected}
+                        onChange={() => selection.setMany(selectableUsers.map((u) => u.uid), !allVisibleSelected)}
+                        disabled={selectableUsers.length === 0}
+                        className="accent-[#185C20]"
+                        ariaLabel="Select all accounts"
+                      />
+                    </th>
                     <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Name</th>
                     <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Role</th>
                     <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Username</th>
@@ -364,7 +530,17 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
                 <tbody className="divide-y divide-gray-50">
                   {filteredUsers.map((user) => (
                     <React.Fragment key={user.uid}>
-                      <tr className="hover:bg-gray-50/50 transition-colors">
+                      <tr className={`transition-colors ${selection.isSelected(user.uid) ? 'bg-[#185C20]/[0.04]' : 'hover:bg-gray-50/50'}`}>
+                        <td className="px-4 py-3">
+                          <SelectCheckbox
+                            checked={selection.isSelected(user.uid)}
+                            onChange={() => selection.toggle(user.uid)}
+                            disabled={!isSelectable(user)}
+                            className="accent-[#185C20]"
+                            title={isSelectable(user) ? 'Select account' : 'This account cannot be bulk-edited'}
+                            ariaLabel={`Select ${user.displayName}`}
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
@@ -441,7 +617,7 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
                       </tr>
                       {resetTarget?.uid === user.uid && (
                         <tr className="bg-[#185C20]/[0.03]">
-                          <td colSpan={6} className="px-4 py-3">
+                          <td colSpan={7} className="px-4 py-3">
                             <div className="flex flex-col md:flex-row md:items-end gap-3">
                               <div className="md:w-72">
                                 <label className={labelClass}>New Password for {resetTarget.displayName}</label>
@@ -690,6 +866,113 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
           </div>
         )}
       </AnimatePresence>
+
+      {/* Bulk Edit Modal */}
+      <AnimatePresence>
+        {bulkEditOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92vh] overflow-hidden flex flex-col"
+            >
+              <div className="flex items-start justify-between gap-3 p-5 border-b border-gray-100">
+                <div>
+                  <h3 className="font-semibold text-gray-900">Edit {selection.count} account{selection.count === 1 ? '' : 's'}</h3>
+                  <p className="text-xs text-gray-500 mt-1">Enable a field to apply the same value to every selected account.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBulkEditOpen(false)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                  Unique fields (username / login code, email, LRN, employee ID) cannot be bulk-edited — each account needs its own value.
+                  Role-specific fields are only applied to accounts of the matching role.
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <BulkEditField
+                    label="Status"
+                    enabled={bulkEnabled.has('status')}
+                    onToggle={(en) => toggleBulkField('status', en)}
+                    accentClass="accent-[#185C20]"
+                  >
+                    <select
+                      value={bulkValues.status || 'active'}
+                      onChange={(e) => setBulkValues((p) => ({ ...p, status: e.target.value }))}
+                      className={inputClass}
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </BulkEditField>
+
+                  {BULK_TEXT_FIELDS.map((field) => (
+                    <BulkEditField
+                      key={field.key}
+                      label={field.label}
+                      hint={field.appliesTo === 'staff' ? 'Staff accounts only' : 'Student accounts only'}
+                      enabled={bulkEnabled.has(field.key)}
+                      onToggle={(en) => toggleBulkField(field.key, en)}
+                      accentClass="accent-[#185C20]"
+                    >
+                      <input
+                        value={bulkValues[field.key] || ''}
+                        onChange={(e) => setBulkValues((p) => ({ ...p, [field.key]: e.target.value }))}
+                        placeholder={field.placeholder}
+                        className={inputClass}
+                      />
+                    </BulkEditField>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end p-5 border-t border-gray-100">
+                <button onClick={() => setBulkEditOpen(false)} className="px-4 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => setConfirmBulk('edit')}
+                  disabled={bulkEnabled.size === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#185C20] text-white text-sm font-medium hover:bg-[#145218] disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  Apply to {selection.count} account{selection.count === 1 ? '' : 's'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Bulk confirmations */}
+      <ConfirmDialog
+        open={confirmBulk === 'edit'}
+        title="Apply bulk changes"
+        message={`Apply the selected field changes to ${selection.count} account${selection.count === 1 ? '' : 's'}? Fields that don't match an account's role are skipped.`}
+        confirmLabel="Apply changes"
+        busy={bulkBusy}
+        onConfirm={performBulkEdit}
+        onCancel={() => setConfirmBulk(null)}
+      />
+      <ConfirmDialog
+        open={confirmBulk === 'delete'}
+        title="Delete accounts"
+        intent="danger"
+        message={`Permanently delete ${selection.count} account${selection.count === 1 ? '' : 's'}? This cannot be undone.`}
+        confirmLabel="Delete"
+        busy={bulkBusy}
+        onConfirm={performBulkDelete}
+        onCancel={() => setConfirmBulk(null)}
+      />
     </div>
   );
 };
