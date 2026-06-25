@@ -23,9 +23,9 @@ export const StudentPortal: React.FC = () => {
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   useEffect(() => {
-    void initializeDatabase();
     const session = getStoredSession();
     if (session?.role === 'student') {
+      void initializeDatabase([]);
       setIsAuthenticated(true);
       setStudentInfo({
         displayName: session.displayName,

@@ -220,7 +220,6 @@ export const AdminPortal: React.FC = () => {
   };
 
   useEffect(() => {
-    void initializeDatabase();
     const session = getStoredSession();
     if (!session) {
       return;
@@ -238,6 +237,7 @@ export const AdminPortal: React.FC = () => {
     }
 
     if (session) {
+      void initializeDatabase(session.role === 'security' ? [] : undefined);
       setIsAuthenticated(true);
       setActiveSection(session.role === 'security' ? 'security-analytics' : 'dashboard');
       setUser({
@@ -269,6 +269,7 @@ export const AdminPortal: React.FC = () => {
           if (destination !== '/admin-portal') {
             void navigate(destination, { replace: true });
           } else {
+            void initializeDatabase(result.role === 'security' ? [] : undefined);
             setUser(result.user);
             setIsAuthenticated(true);
             setActiveSection(result.role === 'security' ? 'security-analytics' : 'dashboard');

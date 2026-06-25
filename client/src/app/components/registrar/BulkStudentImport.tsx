@@ -4,7 +4,7 @@ import {
   Upload, X, FileSpreadsheet, CheckCircle2, AlertCircle, XCircle,
   Loader2, Download, ArrowRight, RotateCcw,
 } from 'lucide-react';
-import { createAccount } from '../../../utils/apiClient';
+import { createStudentsBatch } from '../../../utils/apiClient';
 import { parseCsvToObjects } from '../../../utils/csv';
 import { Modal } from './shared';
 import type { StudentRecord } from './StudentRegistration';
@@ -44,6 +44,10 @@ interface ImportResult {
 
 type Stage = 'pick' | 'preview' | 'importing' | 'summary';
 
+// Students per HTTP request. The server commits each request with batched
+// Firestore writes, so one call registers many students at once.
+const CHUNK_SIZE = 50;
+
 const PASSWORD_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
 const generateTempPassword = () => {
   let pw = '';
@@ -53,6 +57,20 @@ const generateTempPassword = () => {
 
 const rowName = (row: ParsedRow) =>
   [row.firstName, row.middleName, row.lastName, row.extension].filter(Boolean).join(' ').trim() || '(unnamed)';
+
+// Nursery and Kindergarten pupils do not have an LRN (Learner Reference Number)
+// yet, so it is optional for those grade levels.
+const isLrnExemptGrade = (gradeLevel: string): boolean => {
+  const normalized = gradeLevel.trim().toLowerCase();
+  return (
+    normalized.includes('nursery') ||
+    normalized.includes('kinder') ||
+    normalized.includes('preschool') ||
+    normalized.includes('pre-k') ||
+    normalized.includes('prek') ||
+    normalized.includes('pre k')
+  );
+};
 
 interface BulkStudentImportProps {
   open: boolean;
@@ -113,53 +131,113 @@ export const BulkStudentImport: React.FC<BulkStudentImportProps> = ({
     const seenLrns = new Set<string>();
     const collected: ImportResult[] = [];
 
+    // 1) Validate every row client-side. Invalid and duplicate rows are recorded
+    //    locally and never sent to the server. Valid rows are queued (with a
+    //    pre-generated temp password) for batched registration.
+    interface BatchEntry {
+      rowIndex: number;
+      row: ParsedRow;
+      password: string;
+      payload: Record<string, any>;
+    }
+    const entries: BatchEntry[] = [];
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      setCurrentIndex(i);
       const lrn = row.lrn?.trim();
+      // LRN is required for everyone except Nursery / Kindergarten pupils.
+      const lrnRequired = !isLrnExemptGrade(row.gradeLevel || '');
 
-      if (!row.firstName?.trim() || !row.lastName?.trim() || !row.gradeLevel?.trim() || !row.section?.trim() || !lrn) {
-        collected.push({ row, rowNumber: i + 2, status: 'failed', message: 'Missing a required field (name, grade level, section, or LRN).' });
-        setResults([...collected]);
+      const missing: string[] = [];
+      if (!row.firstName?.trim() || !row.lastName?.trim()) missing.push('name');
+      if (!row.gradeLevel?.trim()) missing.push('grade level');
+      if (!row.section?.trim()) missing.push('section');
+      if (lrnRequired && !lrn) missing.push('LRN');
+      if (missing.length > 0) {
+        collected.push({ row, rowNumber: i + 2, status: 'failed', message: `Missing a required field (${missing.join(', ')}).` });
         continue;
       }
 
-      if (existingLrns.has(lrn) || seenLrns.has(lrn)) {
-        collected.push({ row, rowNumber: i + 2, status: 'duplicate', message: `LRN ${lrn} is already registered.` });
-        setResults([...collected]);
-        continue;
+      // Only enforce LRN uniqueness when an LRN is actually provided, so multiple
+      // Nursery/Kinder pupils without LRNs are not flagged as duplicates.
+      if (lrn) {
+        if (existingLrns.has(lrn) || seenLrns.has(lrn)) {
+          collected.push({ row, rowNumber: i + 2, status: 'duplicate', message: `LRN ${lrn} is already registered.` });
+          continue;
+        }
+        seenLrns.add(lrn);
       }
 
       const password = generateTempPassword();
-      try {
-        const payload: Record<string, any> = {
-          role: 'student',
-          firstName: row.firstName.trim(),
-          lastName: row.lastName.trim(),
-          password,
-          lrn,
-          gradeLevel: row.gradeLevel.trim(),
-          section: row.section.trim(),
-          noOfSiblings: Number(row.noOfSiblings) || 0,
-          monthlyFamilyIncome: Number(row.monthlyFamilyIncome) || 0,
-          province: row.province?.trim() || '',
-          city: row.city?.trim() || '',
-          emergencyContactName: row.emergencyContactName?.trim() || '',
-          emergencyContactNumber: row.emergencyContactNumber?.trim() || '',
-        };
-        if (row.middleName?.trim()) payload.middleName = row.middleName.trim();
-        if (row.extension?.trim()) payload.extension = row.extension.trim();
+      const payload: Record<string, any> = {
+        firstName: row.firstName.trim(),
+        lastName: row.lastName.trim(),
+        password,
+        gradeLevel: row.gradeLevel.trim(),
+        section: row.section.trim(),
+        noOfSiblings: Number(row.noOfSiblings) || 0,
+        monthlyFamilyIncome: Number(row.monthlyFamilyIncome) || 0,
+        province: row.province?.trim() || '',
+        city: row.city?.trim() || '',
+        emergencyContactName: row.emergencyContactName?.trim() || '',
+        emergencyContactNumber: row.emergencyContactNumber?.trim() || '',
+      };
+      if (lrn) payload.lrn = lrn;
+      if (row.middleName?.trim()) payload.middleName = row.middleName.trim();
+      if (row.extension?.trim()) payload.extension = row.extension.trim();
 
-        const res = await createAccount(payload);
-        seenLrns.add(lrn);
-        collected.push({ row, rowNumber: i + 2, status: 'success', password, student: res.user });
+      entries.push({ rowIndex: i, row, password, payload });
+    }
+
+    // Surface invalid/duplicate rows immediately, before any network round-trip.
+    setCurrentIndex(collected.length);
+    setResults([...collected]);
+
+    // 2) Register the valid rows in batches — many students per request via the
+    //    /accounts/batch endpoint, instead of one HTTP call per student.
+    for (let start = 0; start < entries.length; start += CHUNK_SIZE) {
+      const slice = entries.slice(start, start + CHUNK_SIZE);
+      try {
+        const res = await createStudentsBatch(slice.map((entry) => entry.payload));
+        const createdByUid = new Map<string, any>((res.created || []).map((u: any) => [u.uid, u]));
+        res.results.forEach((result) => {
+          const entry = slice[result.index];
+          if (!entry) return;
+          if (result.status === 'success') {
+            collected.push({
+              row: entry.row,
+              rowNumber: entry.rowIndex + 2,
+              status: 'success',
+              password: entry.password,
+              student: result.uid ? createdByUid.get(result.uid) : undefined,
+            });
+          } else {
+            collected.push({
+              row: entry.row,
+              rowNumber: entry.rowIndex + 2,
+              status: 'failed',
+              message: result.error || 'Registration failed.',
+            });
+          }
+        });
       } catch (err: any) {
-        collected.push({ row, rowNumber: i + 2, status: 'failed', message: err?.message || 'Registration failed.' });
+        // Whole chunk failed (network/server) — mark each row in it as failed.
+        slice.forEach((entry) => collected.push({
+          row: entry.row,
+          rowNumber: entry.rowIndex + 2,
+          status: 'failed',
+          message: err?.message || 'Registration failed.',
+        }));
       }
+      setCurrentIndex(collected.length);
       setResults([...collected]);
     }
 
     setCurrentIndex(rows.length);
+    // Keep the summary ordered by original CSV row.
+    collected.sort((a, b) => a.rowNumber - b.rowNumber);
+    setResults([...collected]);
+
     const successStudents = collected.filter((r) => r.status === 'success' && r.student).map((r) => r.student!);
     if (successStudents.length > 0) onImported(successStudents);
     setStage('summary');
@@ -257,7 +335,7 @@ export const BulkStudentImport: React.FC<BulkStudentImportProps> = ({
                 </table>
               </div>
               <p className="text-xs text-gray-400 mt-3">
-                Each student gets a unique login code and an auto-generated temporary password. Duplicate LRNs (against existing students or within this file) will be skipped.
+                Each student gets a unique login code and an auto-generated temporary password. Duplicate LRNs (against existing students or within this file) will be skipped. LRN is optional for Nursery and Kindergarten.
               </p>
             </motion.div>
           )}

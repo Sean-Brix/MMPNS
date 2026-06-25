@@ -27,8 +27,13 @@
     },
   });
 
-  // Capture install prompt as early as possible so page-level components don't miss it.
+  // Capture the prompt early only on the teacher portal, where the custom
+  // "Download App" button later calls prompt().
   window.addEventListener('beforeinstallprompt', (event) => {
+    if (window.location.pathname !== '/teacher-portal') {
+      return;
+    }
+
     event.preventDefault();
     window.__mmpnsDeferredInstallPrompt = event as BeforeInstallPromptEvent;
   });
@@ -58,4 +63,3 @@
   window.requestAnimationFrame(() => {
     window.setTimeout(removeBootLoader, 120);
   });
-  

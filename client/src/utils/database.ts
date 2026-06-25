@@ -54,6 +54,7 @@ interface DatabaseUpdateEventDetail {
 
 let hasStartedCloudRefresh = false;
 let cloudRefreshIntervalId: number | null = null;
+let cloudRefreshTables: DatabaseTable[] = [...DATABASE_TABLES];
 
 const hasWindow = () => typeof window !== 'undefined';
 
@@ -111,15 +112,20 @@ const refreshTableFromCloud = async (table: DatabaseTable) => {
   return localValue;
 };
 
-const startCloudRefresh = () => {
+const resolveTables = (tables?: DatabaseTable[]) =>
+  tables ?? DATABASE_TABLES;
+
+const startCloudRefresh = (tables?: DatabaseTable[]) => {
   if (!hasWindow() || hasStartedCloudRefresh) {
+    cloudRefreshTables = [...resolveTables(tables)];
     return;
   }
 
   hasStartedCloudRefresh = true;
+  cloudRefreshTables = [...resolveTables(tables)];
 
   cloudRefreshIntervalId = window.setInterval(() => {
-    DATABASE_TABLES.forEach((table) => {
+    cloudRefreshTables.forEach((table) => {
       refreshTableFromCloud(table).catch((error) => {
         console.error(`Failed to refresh ${table} from API:`, error);
       });
@@ -129,13 +135,15 @@ const startCloudRefresh = () => {
 
 export const isCloudDatabaseConfigured = () => true;
 
-export const initializeDatabase = async () => {
+export const initializeDatabase = async (tables?: DatabaseTable[]) => {
   if (!hasWindow()) {
     return;
   }
 
+  const tablesToInitialize = resolveTables(tables);
+
   await Promise.all(
-    DATABASE_TABLES.map(async (table) => {
+    tablesToInitialize.map(async (table) => {
       try {
         await refreshTableFromCloud(table);
       } catch (error) {
@@ -144,7 +152,7 @@ export const initializeDatabase = async () => {
     }),
   );
 
-  startCloudRefresh();
+  startCloudRefresh(tablesToInitialize);
 };
 
 export const readDatabase = <T = any>(table: DatabaseTable): T | null => {

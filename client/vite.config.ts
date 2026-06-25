@@ -31,6 +31,7 @@ export default defineConfig({
         manualChunks: {
           'vendor-motion': ['motion/react'],
           'vendor-maps': ['@react-google-maps/api'],
+          'vendor-charts': ['recharts'],
         },
       },
       plugins: [

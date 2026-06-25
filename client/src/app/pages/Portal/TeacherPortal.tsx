@@ -272,10 +272,16 @@ export const TeacherPortal: React.FC = () => {
   useEffect(() => {
     let isCancelled = false;
 
-    initializeDatabase();
-
     const session = getStoredSession();
     if (session?.role === 'teacher') {
+      void initializeDatabase([
+        'teacher_portal',
+        'calendar',
+        'teacher_records',
+        'master_subjects',
+        'evaluation_rubrics',
+        'teacher_evaluations',
+      ]);
       setIsAuthenticated(true);
       setTeacherInfo({
         username: session.username,

@@ -4,7 +4,6 @@ import { Toaster } from 'sonner';
 import { motion } from 'motion/react';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
-import { initializeDatabase } from '../../utils/database';
 import { getSeoForPath } from '../seo/siteMeta';
 import { useDocumentSeo } from '../seo/useDocumentSeo';
 
@@ -25,10 +24,6 @@ export const RootLayout: React.FC = () => {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
-
-  useEffect(() => {
-    void initializeDatabase();
-  }, []);
 
   return (
     <>

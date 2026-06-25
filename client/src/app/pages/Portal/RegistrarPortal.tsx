@@ -64,9 +64,9 @@ export const RegistrarPortal: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    void initializeDatabase();
     const session = getStoredSession();
     if (session?.role === 'registrar') {
+      void initializeDatabase(['student_registrations', 'students']);
       setIsAuthenticated(true);
       setUser({
         role: 'registrar',

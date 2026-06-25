@@ -69,9 +69,19 @@ export const PrincipalPortal: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    void initializeDatabase();
     const session = getStoredSession();
     if (session?.role === 'principal') {
+      void initializeDatabase([
+        'students',
+        'teachers',
+        'teacher_records',
+        'master_subjects',
+        'teacher_portal',
+        'calendar',
+        'evaluation_rubrics',
+        'teacher_evaluations',
+        'school_years',
+      ]);
       setIsAuthenticated(true);
       setUser({
         role: 'principal',
