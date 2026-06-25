@@ -512,6 +512,27 @@ export const Home: React.FC = () => {
 
   return (
     <div className="relative overflow-hidden">
+      {/*
+        Accessible, screen-reader-only page summary. Gives the homepage a single
+        descriptive H1 (the hero headline rotates) and states the school's name,
+        type, and location for assistive tech and search engines. Not visually
+        rendered — does not change the design.
+      */}
+      <section className="sr-only">
+        <h1>
+          Madre Maria Pia Notari School (MMPNS) — Catholic Private School in
+          Parañaque
+        </h1>
+        <p>
+          Madre Maria Pia Notari School (MMPNS) is a Catholic, private school in
+          Multinational Village, Parañaque City, Metro Manila. We offer
+          Kindergarten, Elementary, and Junior High School programs in a
+          values-centered, faith-filled learning community. Looking for a
+          Catholic school or private school in Parañaque? MMPNS welcomes families
+          from Multinational Village and the wider Parañaque area.
+        </p>
+      </section>
+
       {isImageEditMode && (
         <div className="fixed top-[88px] md:top-[122px] right-4 z-40 flex items-center gap-2 px-3 py-2 rounded-xl bg-[#185C20] text-white border border-white/15 shadow-xl">
           <span className="inline-flex items-center gap-1.5 text-xs font-bold">

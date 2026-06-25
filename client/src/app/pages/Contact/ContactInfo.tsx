@@ -1,13 +1,14 @@
 import React from 'react';
 import { MapPin, Phone, Mail, Facebook, MessageCircle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import { SCHOOL_INFO } from '../../seo/siteMeta';
 
 export const ContactInfo: React.FC = () => {
   const contactInfo = [
-    { icon: <MapPin />, title: 'Visit Us', text: '#70 Timothy St., Multinational Village, Parañaque City, Metro Manila' },
-    { icon: <Phone />, title: 'Call Us', text: '(02) 123-4567 / (02) 765-4321' },
-    { icon: <Mail />, title: 'Email Us', text: 'mmpns.official@gmail.com / info@mmpns.edu.ph' },
-    { icon: <Facebook />, title: 'Social Media', text: 'facebook.com/MMPNSOfficial' },
+    { icon: <MapPin />, title: 'Visit Us', text: SCHOOL_INFO.address.full },
+    { icon: <Phone />, title: 'Call Us', text: SCHOOL_INFO.phoneDisplay },
+    { icon: <Mail />, title: 'Email Us', text: SCHOOL_INFO.email },
+    { icon: <Facebook />, title: 'Social Media', text: SCHOOL_INFO.facebookHandle },
   ];
 
   return (
@@ -35,7 +36,7 @@ export const ContactInfo: React.FC = () => {
         <p className="text-xs text-white/70 mb-6 leading-relaxed">
           For quick responses, you can also message us directly on our Facebook page.
         </p>
-        <Button variant="secondary" className="w-full text-xs" onClick={() => window.open('https://facebook.com', '_blank')}>
+        <Button variant="secondary" className="w-full text-xs" onClick={() => window.open(SCHOOL_INFO.facebookUrl, '_blank', 'noopener,noreferrer')}>
           Open Messenger
         </Button>
       </div>

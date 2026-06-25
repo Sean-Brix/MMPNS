@@ -3,6 +3,7 @@ import { Facebook, Mail, Phone, MapPin, ExternalLink, Heart, Shield, Award, Grad
 import { useAppNavigate } from '../hooks/useAppNavigate';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { SITE_IMAGE_DEFAULTS, readSiteImageSlots } from '../../utils/siteImageSlots';
+import { SCHOOL_INFO } from '../seo/siteMeta';
 
 export const Footer: React.FC = () => {
   const goTo = useAppNavigate();
@@ -73,20 +74,20 @@ export const Footer: React.FC = () => {
                   <MapPin size={18} />
                 </div>
                 <span className="text-white/60 text-sm leading-relaxed">
-                  #70 Timothy St., Multinational Village, Parañaque City, PH 1708
+                  {SCHOOL_INFO.address.full}
                 </span>
               </li>
               <li className="flex gap-4">
                 <div className="shrink-0 w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-[#EDCD1F]">
                   <Phone size={18} />
                 </div>
-                <span className="text-white/60 text-sm font-medium">(02) 8821-1234 / 8821-5678</span>
+                <span className="text-white/60 text-sm font-medium">{SCHOOL_INFO.phoneDisplay}</span>
               </li>
               <li className="flex gap-4">
                 <div className="shrink-0 w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-[#EDCD1F]">
                   <Mail size={18} />
                 </div>
-                <span className="text-white/60 text-sm font-medium">mmpns.official@gmail.com</span>
+                <span className="text-white/60 text-sm font-medium">{SCHOOL_INFO.email}</span>
               </li>
             </ul>
           </div>
@@ -114,10 +115,20 @@ export const Footer: React.FC = () => {
             </div>
             
             <div className="mt-8 flex gap-4">
-              <a href="#" className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-[#EDCD1F] hover:text-[#185C20] transition-all">
+              <a
+                href={SCHOOL_INFO.facebookUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Madre Maria Pia Notari School on Facebook"
+                className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-[#EDCD1F] hover:text-[#185C20] transition-all"
+              >
                 <Facebook size={20} />
               </a>
-              <a href="mailto:info@mmpns.edu.ph" className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-[#EDCD1F] hover:text-[#185C20] transition-all">
+              <a
+                href={`mailto:${SCHOOL_INFO.email}`}
+                aria-label="Email Madre Maria Pia Notari School"
+                className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-[#EDCD1F] hover:text-[#185C20] transition-all"
+              >
                 <Mail size={20} />
               </a>
             </div>

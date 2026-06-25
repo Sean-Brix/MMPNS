@@ -1,0 +1,20 @@
+# robots.txt for Madre Maria Pia Notari School (MMPNS)
+# https://mmpns-pque.com
+
+User-agent: *
+Allow: /
+
+# Private application / portal areas (not useful in search results)
+Disallow: /teacher-portal
+Disallow: /student-portal
+Disallow: /principal-portal
+Disallow: /librarian-portal
+Disallow: /registrar-portal
+Disallow: /admin-portal
+Disallow: /admin
+Disallow: /superadmin
+Disallow: /developer
+Disallow: /downloadable-forms
+Disallow: /api/
+
+Sitemap: https://mmpns-pque.com/sitemap.xml

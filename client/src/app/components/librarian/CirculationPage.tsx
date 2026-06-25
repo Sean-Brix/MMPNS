@@ -9,7 +9,6 @@ import {
   RefreshCw,
   RotateCcw,
   ScanLine,
-  Trash2,
   UserRound,
   X,
 } from 'lucide-react';
@@ -59,11 +58,18 @@ interface CirculationBook {
   author?: string;
   callNo?: string;
   isbn?: string;
+  status: CirculationStatus;
+  borrowedAt?: string;
+  dueAt?: string;
+  returnedAt?: string | null;
+  updatedAt?: string;
 }
+
+type CirculationStatus = 'borrowed' | 'returned' | 'late_returned' | 'not_returned';
 
 interface CirculationRecord {
   id: string;
-  status: 'borrowed' | 'returned';
+  status: CirculationStatus;
   borrowedAt: string;
   dueAt: string;
   approvedAt: string;
@@ -139,6 +145,60 @@ const normalizeScan = (value: string) =>
 
 const normalizeBookBarcode = (value: string) =>
   normalizeScan(value).toLowerCase();
+
+const CIRCULATION_STATUSES: CirculationStatus[] = ['borrowed', 'returned', 'late_returned', 'not_returned'];
+
+const isCirculationStatus = (value: unknown): value is CirculationStatus =>
+  typeof value === 'string' && CIRCULATION_STATUSES.includes(value as CirculationStatus);
+
+const isReturnedStatus = (status: CirculationStatus) =>
+  status === 'returned' || status === 'late_returned';
+
+const isActiveStatus = (status: CirculationStatus) =>
+  status === 'borrowed' || status === 'not_returned';
+
+const timestampOf = (iso?: string | null) => {
+  if (!iso) return Number.NaN;
+  const time = new Date(iso).getTime();
+  return Number.isFinite(time) ? time : Number.NaN;
+};
+
+const isPastDue = (dueAt: string, now = new Date()) => {
+  const dueTime = timestampOf(dueAt);
+  return Number.isFinite(dueTime) && dueTime < now.getTime();
+};
+
+const isLateReturn = (dueAt: string, returnedAt: string) => {
+  const dueTime = timestampOf(dueAt);
+  const returnedTime = timestampOf(returnedAt);
+  return Number.isFinite(dueTime) && Number.isFinite(returnedTime) && returnedTime > dueTime;
+};
+
+const resolveActiveStatus = (dueAt: string, now = new Date()): CirculationStatus =>
+  isPastDue(dueAt, now) ? 'not_returned' : 'borrowed';
+
+const resolveReturnedStatus = (dueAt: string, returnedAt: string): CirculationStatus =>
+  isLateReturn(dueAt, returnedAt) ? 'late_returned' : 'returned';
+
+const statusLabel = (status: CirculationStatus) => {
+  switch (status) {
+    case 'late_returned':
+      return 'Late Returned';
+    case 'not_returned':
+      return 'Not Returned';
+    case 'returned':
+      return 'Returned';
+    default:
+      return 'Borrowed';
+  }
+};
+
+const STATUS_BADGE_CLASS: Record<CirculationStatus, string> = {
+  borrowed: 'bg-blue-50 text-blue-700 border-blue-100',
+  returned: 'bg-green-50 text-green-700 border-green-100',
+  late_returned: 'bg-orange-50 text-orange-700 border-orange-100',
+  not_returned: 'bg-red-50 text-red-700 border-red-100',
+};
 
 const toStudentProfile = (student: any, fallbackCode: string): CirculationStudent => {
   const displayName = student.displayName ||
@@ -227,13 +287,30 @@ const toBookSnapshot = (draft: DraftBook): CirculationBook => ({
   author: draft.book.author,
   callNo: draft.book.callNo,
   isbn: draft.book.isbn,
+  status: 'borrowed',
+  returnedAt: null,
 });
 
-const normalizeBookSnapshot = (value: any): CirculationBook | null => {
+const normalizeBookSnapshot = (
+  value: any,
+  fallback: {
+    borrowedAt: string;
+    dueAt: string;
+    status: CirculationStatus;
+    returnedAt?: string | null;
+    updatedAt?: string;
+  },
+): CirculationBook | null => {
   if (!value || typeof value !== 'object') return null;
   const barcode = String(value.barcode || value.bookId || '').toLowerCase();
   const title = String(value.title || '').trim();
   if (!barcode || !title) return null;
+
+  const rawStatus = isCirculationStatus(value.status) ? value.status : fallback.status;
+  const returnedAt = value.returnedAt || (isReturnedStatus(rawStatus) ? fallback.returnedAt || fallback.updatedAt || null : null);
+  const status = returnedAt
+    ? resolveReturnedStatus(fallback.dueAt, String(returnedAt))
+    : resolveActiveStatus(fallback.dueAt);
 
   return {
     id: String(value.id || value.bookId || barcode),
@@ -245,35 +322,126 @@ const normalizeBookSnapshot = (value: any): CirculationBook | null => {
     author: value.author,
     callNo: value.callNo,
     isbn: value.isbn,
+    status,
+    borrowedAt: value.borrowedAt || fallback.borrowedAt,
+    dueAt: value.dueAt || fallback.dueAt,
+    returnedAt,
+    updatedAt: value.updatedAt,
   };
 };
+
+const latestReturnedAt = (books: CirculationBook[]) => {
+  let latest: string | null = null;
+  books.forEach((book) => {
+    if (!book.returnedAt) return;
+    if (!latest || timestampOf(book.returnedAt) > timestampOf(latest)) {
+      latest = book.returnedAt;
+    }
+  });
+  return latest;
+};
+
+const applyRecordLifecycle = (record: CirculationRecord, now = new Date()): CirculationRecord => {
+  const books = record.books.map((book) => {
+    const bookDueAt = book.dueAt || record.dueAt;
+    const bookBorrowedAt = book.borrowedAt || record.borrowedAt;
+    const status = book.returnedAt
+      ? resolveReturnedStatus(bookDueAt, book.returnedAt)
+      : resolveActiveStatus(bookDueAt, now);
+
+    return {
+      ...book,
+      status,
+      borrowedAt: bookBorrowedAt,
+      dueAt: bookDueAt,
+    };
+  });
+
+  const activeBooks = books.filter((book) => isActiveStatus(book.status));
+  const status: CirculationStatus = activeBooks.length > 0
+    ? (activeBooks.some((book) => book.status === 'not_returned') ? 'not_returned' : 'borrowed')
+    : (books.some((book) => book.status === 'late_returned') ? 'late_returned' : 'returned');
+
+  return {
+    ...record,
+    status,
+    returnedAt: activeBooks.length === 0 ? latestReturnedAt(books) : null,
+    books,
+  };
+};
+
+const getOpenBooks = (record: CirculationRecord) =>
+  record.books.filter((book) => isActiveStatus(book.status));
+
+const markBookReturnedInRecord = (
+  record: CirculationRecord,
+  barcode: string,
+  returnedAt: string,
+) => applyRecordLifecycle({
+  ...record,
+  updatedAt: returnedAt,
+  books: record.books.map((book) =>
+    book.barcode.toLowerCase() === barcode.toLowerCase() && isActiveStatus(book.status)
+      ? {
+          ...book,
+          status: resolveReturnedStatus(book.dueAt || record.dueAt, returnedAt),
+          returnedAt,
+          updatedAt: returnedAt,
+        }
+      : book,
+  ),
+}, new Date(returnedAt));
+
+const markOpenBooksReturnedInRecord = (
+  record: CirculationRecord,
+  returnedAt: string,
+) => applyRecordLifecycle({
+  ...record,
+  updatedAt: returnedAt,
+  books: record.books.map((book) =>
+    isActiveStatus(book.status)
+      ? {
+          ...book,
+          status: resolveReturnedStatus(book.dueAt || record.dueAt, returnedAt),
+          returnedAt,
+          updatedAt: returnedAt,
+        }
+      : book,
+  ),
+}, new Date(returnedAt));
 
 const normalizeCirculationRecord = (value: any): CirculationRecord | null => {
   if (!value || typeof value !== 'object' || !value.student) return null;
 
+  const borrowedAt = String(value.borrowedAt || value.approvedAt || new Date().toISOString());
+  const dueAt = String(value.dueAt || value.expectedReturnAt || value.returnDueAt || value.borrowedAt || borrowedAt);
+  const rawStatus = isCirculationStatus(value.status) ? value.status : 'borrowed';
+  const returnedAt = value.returnedAt || null;
   const rawBooks = Array.isArray(value.books) ? value.books : [value.book].filter(Boolean);
   const books = rawBooks
-    .map(normalizeBookSnapshot)
+    .map((book) => normalizeBookSnapshot(book, {
+      borrowedAt,
+      dueAt,
+      status: rawStatus,
+      returnedAt,
+      updatedAt: value.updatedAt,
+    }))
     .filter((book): book is CirculationBook => Boolean(book));
 
   if (books.length === 0) return null;
 
-  const borrowedAt = String(value.borrowedAt || value.approvedAt || new Date().toISOString());
-  const dueAt = String(value.dueAt || value.expectedReturnAt || value.returnDueAt || value.borrowedAt || borrowedAt);
-  const status = value.status === 'returned' ? 'returned' : 'borrowed';
-
-  return {
+  return applyRecordLifecycle({
     id: String(value.id || newRecordId()),
-    status,
+    status: rawStatus,
     borrowedAt,
     dueAt,
     approvedAt: String(value.approvedAt || borrowedAt),
     approvedBy: value.approvedBy,
-    returnedAt: value.returnedAt || null,
+    returnedAt,
     updatedAt: value.updatedAt,
     student: value.student,
     books,
-  };
+  });
 };
 
 const normalizeCirculationRecords = (values?: unknown[]): CirculationRecord[] => {
@@ -308,7 +476,7 @@ const normalizeCirculationRecords = (values?: unknown[]): CirculationRecord[] =>
     });
   });
 
-  return Array.from(grouped.values());
+  return Array.from(grouped.values()).map((record) => applyRecordLifecycle(record));
 };
 
 const Stat: React.FC<{
@@ -324,6 +492,12 @@ const Stat: React.FC<{
     <p className="text-2xl font-bold text-gray-900 tabular-nums">{value}</p>
     <p className="text-xs text-gray-500 mt-0.5">{label}</p>
   </div>
+);
+
+const StatusBadge: React.FC<{ status: CirculationStatus }> = ({ status }) => (
+  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE_CLASS[status]}`}>
+    {statusLabel(status)}
+  </span>
 );
 
 const FutureDateTimePickerModal: React.FC<{
@@ -615,7 +789,7 @@ const BooksDetailModal: React.FC<{
           <div>
             <p className="font-semibold text-gray-900">Borrowing Details</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              {record.student.displayName} - {record.books.length} book{record.books.length === 1 ? '' : 's'} borrowed
+              {record.student.displayName} - {getOpenBooks(record).length} of {record.books.length} book{record.books.length === 1 ? '' : 's'} still out
             </p>
           </div>
           <button
@@ -644,7 +818,7 @@ const BooksDetailModal: React.FC<{
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="rounded-xl border border-gray-200 p-4">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Borrowed</p>
                 <p className="text-sm font-semibold text-gray-900 mt-1">{formatDateTime(record.borrowedAt)}</p>
@@ -657,6 +831,10 @@ const BooksDetailModal: React.FC<{
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Approved By</p>
                 <p className="text-sm font-semibold text-gray-900 mt-1">{record.approvedBy || 'Librarian'}</p>
               </div>
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Status</p>
+                <div className="mt-2"><StatusBadge status={record.status} /></div>
+              </div>
             </div>
           </div>
 
@@ -667,6 +845,7 @@ const BooksDetailModal: React.FC<{
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Book</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Copy</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Barcode</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -682,6 +861,12 @@ const BooksDetailModal: React.FC<{
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <span className="font-mono text-xs font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">{book.barcode}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={book.status} />
+                      {book.returnedAt && (
+                        <p className="text-xs text-gray-400 mt-1">{formatDateTime(book.returnedAt)}</p>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -702,10 +887,10 @@ const BooksDetailModal: React.FC<{
           <button
             type="button"
             onClick={() => onReturn(record)}
-            className="h-11 px-4 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+            className="h-11 px-4 rounded-lg bg-green-700 text-white text-sm font-semibold hover:bg-green-800 transition-colors flex items-center justify-center gap-2"
           >
-            <Trash2 className="w-4 h-4" />
-            Mark Returned
+            <RotateCcw className="w-4 h-4" />
+            Mark All Returned
           </button>
         </div>
       </>
@@ -727,40 +912,63 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
   const [returnRecord, setReturnRecord] = useState<CirculationRecord | null>(null);
   const [detailsRecord, setDetailsRecord] = useState<CirculationRecord | null>(null);
   const [actionMsg, setActionMsg] = useState('');
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const scannerRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<number | null>(null);
   const processingRef = useRef(false);
   const lastScanRef = useRef<{ key: string; at: number }>({ key: '', at: 0 });
 
+  const currentRecords = useMemo(
+    () => records.map((record) => applyRecordLifecycle(record, new Date(nowTick))),
+    [nowTick, records],
+  );
+
   const activeRecords = useMemo(
-    () => records
-      .filter((record) => record.status === 'borrowed' && !record.returnedAt)
+    () => currentRecords
+      .filter((record) => getOpenBooks(record).length > 0)
       .sort((a, b) => new Date(b.borrowedAt).getTime() - new Date(a.borrowedAt).getTime()),
-    [records],
+    [currentRecords],
   );
 
   const activeBookBarcodes = useMemo(() => {
     const set = new Set<string>();
     activeRecords.forEach((record) => {
-      record.books.forEach((book) => set.add(book.barcode.toLowerCase()));
+      getOpenBooks(record).forEach((book) => set.add(book.barcode.toLowerCase()));
     });
     return set;
   }, [activeRecords]);
 
   const booksOut = useMemo(
-    () => activeRecords.reduce((sum, record) => sum + record.books.length, 0),
+    () => activeRecords.reduce((sum, record) => sum + getOpenBooks(record).length, 0),
     [activeRecords],
   );
 
   const returnedToday = useMemo(() => {
     const todayKey = toDateKey(new Date());
-    return records.filter((record) =>
-      record.status === 'returned' &&
-      record.returnedAt &&
-      toDateKey(new Date(record.returnedAt)) === todayKey,
-    ).length;
-  }, [records]);
+    return currentRecords.reduce((count, record) => (
+      count + record.books.filter((book) =>
+        isReturnedStatus(book.status) &&
+        book.returnedAt &&
+        toDateKey(new Date(book.returnedAt)) === todayKey,
+      ).length
+    ), 0);
+  }, [currentRecords]);
+
+  const notReturnedBooks = useMemo(
+    () => currentRecords.reduce((count, record) =>
+      count + record.books.filter((book) => book.status === 'not_returned').length, 0),
+    [currentRecords],
+  );
+
+  const overdueBooks = useMemo(
+    () => currentRecords
+      .flatMap((record) => record.books
+        .filter((book) => book.status === 'not_returned')
+        .map((book) => ({ record, book })))
+      .sort((a, b) => timestampOf(a.book.dueAt || a.record.dueAt) - timestampOf(b.book.dueAt || b.record.dueAt)),
+    [currentRecords],
+  );
 
   const scannedMode: ScanMode = activeStudent ? 'book' : 'student';
   const scannerEnabled = !approving && !editRecord && !returnRecord && !detailsRecord;
@@ -795,12 +1003,18 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    const intervalId = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
     focusScanner();
   }, [activeStudent, draftBooks.length, focusScanner]);
 
   const persistRecords = useCallback((next: CirculationRecord[]) => {
-    setRecords(next);
-    writeDatabase(CIRCULATION_TABLE, { records: next });
+    const nextRecords = next.map((record) => applyRecordLifecycle(record));
+    setRecords(nextRecords);
+    writeDatabase(CIRCULATION_TABLE, { records: nextRecords });
   }, []);
 
   const findLocalStudent = (code: string): CirculationStudent | null => {
@@ -842,6 +1056,44 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
     setScanMessage(`Student found. Scan books for ${student.displayName}.`);
   };
 
+  const findActiveLoanByScan = useCallback((raw: string): { record: CirculationRecord; book: CirculationBook } | null => {
+    const draft = findBookForScan(books, raw);
+    const candidates = new Set<string>([normalizeBookBarcode(raw), parseBookScan(raw).code.toLowerCase()]);
+    if (draft) {
+      candidates.add(draft.key.toLowerCase());
+    }
+
+    for (const record of currentRecords) {
+      for (const book of record.books) {
+        if (isActiveStatus(book.status) && candidates.has(book.barcode.toLowerCase())) {
+          return { record, book };
+        }
+      }
+    }
+
+    return null;
+  }, [books, currentRecords]);
+
+  const returnBorrowedBookScan = useCallback((raw: string) => {
+    const match = findActiveLoanByScan(raw);
+    if (!match) return false;
+
+    const returnedAt = new Date().toISOString();
+    const nextRecord = markBookReturnedInRecord(match.record, match.book.barcode, returnedAt);
+    const nextBook = nextRecord.books.find((book) => book.barcode.toLowerCase() === match.book.barcode.toLowerCase()) || match.book;
+    const nextRecords = currentRecords.map((record) =>
+      record.id === match.record.id ? nextRecord : record,
+    );
+
+    persistRecords(nextRecords);
+    setDraftBooks((prev) => prev.filter((draft) => draft.key.toLowerCase() !== match.book.barcode.toLowerCase()));
+    setDetailsRecord((current) => current && current.id === match.record.id ? nextRecord : current);
+    setScanError('');
+    setScanMessage(`${match.book.title} copy ${match.book.copyNumber} marked as ${statusLabel(nextBook.status).toLowerCase()} for ${match.record.student.displayName}.`);
+    flash(`${match.book.title} copy ${match.book.copyNumber} marked as ${statusLabel(nextBook.status).toLowerCase()}.`);
+    return true;
+  }, [currentRecords, findActiveLoanByScan, persistRecords]);
+
   const addBookScan = (raw: string) => {
     const draft = findBookForScan(books, raw);
     if (!draft) {
@@ -857,7 +1109,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
 
     if (activeBookBarcodes.has(draft.key.toLowerCase())) {
       const currentBorrower = activeRecords.find((record) =>
-        record.books.some((book) => book.barcode.toLowerCase() === draft.key.toLowerCase()),
+        record.books.some((book) => isActiveStatus(book.status) && book.barcode.toLowerCase() === draft.key.toLowerCase()),
       );
       setScanError(`${draft.book.title} copy ${draft.copyNumber} is already borrowed by ${currentBorrower?.student.displayName || 'another student'}.`);
       return;
@@ -885,6 +1137,10 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
     setScanError('');
 
     try {
+      if (returnBorrowedBookScan(code)) {
+        return;
+      }
+
       if (scannedMode === 'student') {
         setScanMessage(`Looking for student ${code}...`);
         const student = await findStudent(code);
@@ -906,7 +1162,7 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
       processingRef.current = false;
       focusScanner();
     }
-  }, [activeBookBarcodes, activeRecords, books, draftBooks, focusScanner, scannedMode]);
+  }, [activeBookBarcodes, activeRecords, books, draftBooks, focusScanner, returnBorrowedBookScan, scannedMode]);
 
   const handleScannerChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -950,10 +1206,16 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
       approvedBy: user.displayName || user.username,
       returnedAt: null,
       student: activeStudent,
-      books: draftBooks.map(toBookSnapshot),
+      books: draftBooks.map((draft) => ({
+        ...toBookSnapshot(draft),
+        status: 'borrowed',
+        borrowedAt: nowIso,
+        dueAt,
+        returnedAt: null,
+      })),
     };
 
-    persistRecords([record, ...records]);
+    persistRecords([record, ...currentRecords]);
     flash(`${draftBooks.length} book${draftBooks.length === 1 ? '' : 's'} approved for ${activeStudent.displayName}.`);
     setApproving(false);
     resetStudentSession();
@@ -961,30 +1223,43 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
 
   const updateDueDate = (dueAt: string) => {
     if (!editRecord) return;
-    const next = records.map((record) =>
-      record.id === editRecord.id
-        ? { ...record, dueAt, updatedAt: new Date().toISOString() }
-        : record,
-    );
+    const updatedAt = new Date().toISOString();
+    let updatedRecord: CirculationRecord | null = null;
+    const next = currentRecords.map((record) => {
+      if (record.id !== editRecord.id) return record;
+      updatedRecord = applyRecordLifecycle({
+        ...record,
+        dueAt,
+        updatedAt,
+        books: record.books.map((book) => ({
+          ...book,
+          dueAt,
+          updatedAt: isActiveStatus(book.status) ? updatedAt : book.updatedAt,
+        })),
+      });
+      return updatedRecord;
+    });
     persistRecords(next);
     flash('Return date and time updated.');
     setEditRecord(null);
-    setDetailsRecord((current) => current && current.id === editRecord.id ? { ...current, dueAt } : current);
+    setDetailsRecord((current) => current && current.id === editRecord.id ? updatedRecord : current);
     focusScanner();
   };
 
   const markReturned = () => {
     if (!returnRecord) return;
     const returnedAt = new Date().toISOString();
-    const next = records.map((record) =>
-      record.id === returnRecord.id
-        ? { ...record, status: 'returned' as const, returnedAt, updatedAt: returnedAt }
-        : record,
-    );
+    let returnedRecord: CirculationRecord | null = null;
+    const next = currentRecords.map((record) => {
+      if (record.id !== returnRecord.id) return record;
+      returnedRecord = markOpenBooksReturnedInRecord(record, returnedAt);
+      return returnedRecord;
+    });
+    const returnedCount = returnRecord.books.filter((book) => isActiveStatus(book.status)).length;
     persistRecords(next);
-    flash(`${returnRecord.student.displayName}'s borrowing record marked as returned.`);
+    flash(`${returnedCount} book${returnedCount === 1 ? '' : 's'} marked as returned for ${returnRecord.student.displayName}.`);
     setReturnRecord(null);
-    setDetailsRecord(null);
+    setDetailsRecord((current) => current && current.id === returnRecord.id ? returnedRecord : current);
     focusScanner();
   };
 
@@ -1047,9 +1322,36 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
         <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">{actionMsg}</div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {overdueBooks.length > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-red-800">
+                {overdueBooks.length} book{overdueBooks.length === 1 ? '' : 's'} not returned
+              </p>
+              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {overdueBooks.slice(0, 4).map(({ record, book }) => (
+                  <div key={`${record.id}-${book.barcode}`} className="rounded-lg border border-red-100 bg-white/70 px-3 py-2">
+                    <p className="text-sm font-medium text-gray-900 truncate">{book.title}</p>
+                    <p className="text-xs text-red-700">
+                      {record.student.displayName} - due {formatDateTime(book.dueAt || record.dueAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {overdueBooks.length > 4 && (
+                <p className="mt-2 text-xs font-medium text-red-700">+{overdueBooks.length - 4} more overdue book{overdueBooks.length - 4 === 1 ? '' : 's'}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Stat label="Active Records" value={activeRecords.length} icon={BookMarked} tone="bg-blue-50 text-blue-700" />
         <Stat label="Books Out" value={booksOut} icon={BookOpen} tone="bg-amber-50 text-amber-700" />
+        <Stat label="Not Returned" value={notReturnedBooks} icon={AlertCircle} tone="bg-red-50 text-red-700" />
         <Stat label="Returned Today" value={returnedToday} icon={RotateCcw} tone="bg-green-50 text-green-700" />
         <Stat label="Scanner Mode" value={scannedMode === 'student' ? 'Student' : 'Book'} icon={ScanLine} tone="bg-slate-50 text-slate-700" />
       </div>
@@ -1080,80 +1382,87 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Books</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Borrowed</th>
                   <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Return Date</th>
+                  <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {activeRecords.map((record) => (
-                  <tr
-                    key={record.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setDetailsRecord(record)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setDetailsRecord(record);
-                      }
-                    }}
-                    className="hover:bg-amber-50/30 transition-colors cursor-pointer focus:outline-none focus:bg-amber-50/50"
-                  >
-                    <td className="px-4 py-3 min-w-[210px]">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                          {record.student.photoUrl
-                            ? <img src={record.student.photoUrl} alt={record.student.displayName} className="w-full h-full object-cover" />
-                            : <span className="text-xs font-bold">{record.student.initials}</span>}
+                {activeRecords.map((record) => {
+                  const openBooks = getOpenBooks(record);
+                  return (
+                    <tr
+                      key={record.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setDetailsRecord(record)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setDetailsRecord(record);
+                        }
+                      }}
+                      className="hover:bg-amber-50/30 transition-colors cursor-pointer focus:outline-none focus:bg-amber-50/50"
+                    >
+                      <td className="px-4 py-3 min-w-[210px]">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+                            {record.student.photoUrl
+                              ? <img src={record.student.photoUrl} alt={record.student.displayName} className="w-full h-full object-cover" />
+                              : <span className="text-xs font-bold">{record.student.initials}</span>}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{record.student.displayName}</p>
+                            <p className="text-xs text-gray-400 truncate">
+                              {record.student.gradeLevel || 'Student'}{record.student.section ? ` - ${record.student.section}` : ''}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{record.student.displayName}</p>
-                          <p className="text-xs text-gray-400 truncate">
-                            {record.student.gradeLevel || 'Student'}{record.student.section ? ` - ${record.student.section}` : ''}
-                          </p>
+                      </td>
+                      <td className="px-4 py-3 min-w-[190px]">
+                        <p className="text-sm font-semibold text-gray-900">{openBooks.length} of {record.books.length} out</p>
+                        <p className="text-xs text-gray-400 truncate">{openBooks[0]?.title || record.books[0]?.title}{openBooks.length > 1 ? ` +${openBooks.length - 1} more` : ''}</p>
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell min-w-[160px]">
+                        <p className="text-sm text-gray-700">{formatDateTime(record.borrowedAt)}</p>
+                        <p className="text-xs text-gray-400">Approved by {record.approvedBy || 'Librarian'}</p>
+                      </td>
+                      <td className="px-4 py-3 min-w-[160px]">
+                        <p className="text-sm font-medium text-gray-800">{formatDateTime(record.dueAt)}</p>
+                        <p className="text-xs text-gray-400">Expected return</p>
+                      </td>
+                      <td className="px-4 py-3 min-w-[130px]">
+                        <StatusBadge status={record.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setEditRecord(record);
+                            }}
+                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-blue-500 hover:bg-blue-50 transition-colors"
+                            title="Edit return date and time"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setReturnRecord(record);
+                            }}
+                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-green-600 hover:bg-green-50 transition-colors"
+                            title="Mark open books as returned"
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                          <ChevronRight className="w-4 h-4 text-gray-300 hidden sm:block" />
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 min-w-[190px]">
-                      <p className="text-sm font-semibold text-gray-900">{record.books.length} book{record.books.length === 1 ? '' : 's'}</p>
-                      <p className="text-xs text-gray-400 truncate">{record.books[0]?.title}{record.books.length > 1 ? ` +${record.books.length - 1} more` : ''}</p>
-                    </td>
-                    <td className="px-4 py-3 hidden lg:table-cell min-w-[160px]">
-                      <p className="text-sm text-gray-700">{formatDateTime(record.borrowedAt)}</p>
-                      <p className="text-xs text-gray-400">Approved by {record.approvedBy || 'Librarian'}</p>
-                    </td>
-                    <td className="px-4 py-3 min-w-[160px]">
-                      <p className="text-sm font-medium text-gray-800">{formatDateTime(record.dueAt)}</p>
-                      <p className="text-xs text-gray-400">Expected return</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setEditRecord(record);
-                          }}
-                          className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-blue-500 hover:bg-blue-50 transition-colors"
-                          title="Edit return date and time"
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setReturnRecord(record);
-                          }}
-                          className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
-                          title="Mark as returned"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                        <ChevronRight className="w-4 h-4 text-gray-300 hidden sm:block" />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1332,12 +1641,12 @@ export const CirculationPage: React.FC<{ user: UserProfile }> = ({ user }) => {
 
       <ConfirmDialog
         open={!!returnRecord}
-        title="Mark borrowing as returned"
-        intent="danger"
+        title="Mark open books as returned"
+        intent="primary"
         message={
           <>
             Mark <span className="font-medium text-gray-700">{returnRecord?.student.displayName}</span>'s borrowing record
-            with {returnRecord?.books.length || 0} book{returnRecord?.books.length === 1 ? '' : 's'} as returned?
+            with {returnRecord ? getOpenBooks(returnRecord).length : 0} open book{returnRecord && getOpenBooks(returnRecord).length === 1 ? '' : 's'} as returned?
           </>
         }
         confirmLabel="Mark Returned"

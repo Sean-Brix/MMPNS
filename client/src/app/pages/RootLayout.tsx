@@ -5,6 +5,8 @@ import { motion } from 'motion/react';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { initializeDatabase } from '../../utils/database';
+import { getSeoForPath } from '../seo/siteMeta';
+import { useDocumentSeo } from '../seo/useDocumentSeo';
 
 const PORTAL_PATHS = [
   '/teacher-portal', '/student-portal', '/principal-portal',
@@ -15,6 +17,9 @@ export const RootLayout: React.FC = () => {
   const location = useLocation();
   const isAdmin = location.pathname === '/admin';
   const isPortal = PORTAL_PATHS.includes(location.pathname);
+
+  // Keep document <head> SEO metadata in sync with the active route.
+  useDocumentSeo(getSeoForPath(location.pathname));
 
   // Scroll to top on route change
   useEffect(() => {

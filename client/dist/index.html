@@ -10,6 +10,9 @@
       <meta name="robots" content="index, follow" />
       <meta name="theme-color" content="#185C20" />
 
+      <!-- Google Search Console ownership verification -->
+      <meta name="google-site-verification" content="IwT53vhJkjvUXryV2CrLkbx8vUGKH5BxPyGyrm91bBM" />
+
       <style>
         #boot-portal-loader {
           position: fixed;
@@ -142,7 +145,7 @@
         }
       </style>
 
-      <link rel="canonical" href="https://mmpns.edu.ph/" />
+      <link rel="canonical" href="https://mmpns-pque.com/" />
 
       <link rel="icon" type="image/png" sizes="512x512" href="/favicon.png?v=20260407g" />
       <link rel="icon" type="image/x-icon" href="/favicon.ico?v=20260407g" />
@@ -153,19 +156,64 @@
       <meta property="og:site_name" content="Madre Maria Pia Notari School" />
       <meta property="og:title" content="Madre Maria Pia Notari School" />
       <meta property="og:description" content="Value-centered Catholic education in Paranaque City from Kindergarten to Junior High School." />
-      <meta property="og:url" content="https://mmpns.edu.ph/" />
-      <meta property="og:image" content="https://mmpns.edu.ph/favicon.png?v=20260407g" />
+      <meta property="og:url" content="https://mmpns-pque.com/" />
+      <meta property="og:image" content="https://mmpns-pque.com/favicon.png?v=20260407g" />
 
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content="Madre Maria Pia Notari School" />
       <meta name="twitter:description" content="Value-centered Catholic education in Paranaque City from Kindergarten to Junior High School." />
-      <meta name="twitter:image" content="https://mmpns.edu.ph/favicon.png?v=20260407g" />
+      <meta name="twitter:image" content="https://mmpns-pque.com/favicon.png?v=20260407g" />
 
       <title>Madre Maria Pia Notari School | MMPNS</title>
-      <script type="module" crossorigin src="/assets/index-DoR9UHzf.js"></script>
+
+      <!--
+        Structured data (JSON-LD) describing the school for Google Search & Maps.
+        Keep these values in sync with SCHOOL_INFO in src/app/seo/siteMeta.ts.
+        NOTE: officeHours below are a placeholder — verify with the school.
+      -->
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": ["School", "EducationalOrganization", "LocalBusiness"],
+        "@id": "https://mmpns-pque.com/#school",
+        "name": "Madre Maria Pia Notari School",
+        "alternateName": ["MMPNS", "Madre Maria Pia Notari School Parañaque"],
+        "description": "Madre Maria Pia Notari School (MMPNS) is a Catholic private school in Multinational Village, Parañaque offering Kindergarten, Elementary, and Junior High School education rooted in faith and academic excellence.",
+        "url": "https://mmpns-pque.com/",
+        "logo": "https://mmpns-pque.com/icons/icon-512.png",
+        "image": "https://mmpns-pque.com/icons/icon-512.png",
+        "foundingDate": "1988",
+        "telephone": "+63-2-8821-1234",
+        "email": "mmpns.official@gmail.com",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "#70 Timothy St., Multinational Village",
+          "addressLocality": "Parañaque City",
+          "addressRegion": "Metro Manila",
+          "postalCode": "1708",
+          "addressCountry": "PH"
+        },
+        "areaServed": [
+          { "@type": "City", "name": "Parañaque City" },
+          { "@type": "Place", "name": "Multinational Village, Parañaque" }
+        ],
+        "openingHoursSpecification": [
+          {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+            "opens": "07:30",
+            "closes": "16:30"
+          }
+        ],
+        "sameAs": [
+          "https://www.facebook.com/MMPNSOfficial"
+        ]
+      }
+      </script>
+      <script type="module" crossorigin src="/assets/index-7tS5Xp0f.js"></script>
       <link rel="modulepreload" crossorigin href="/assets/vendor-motion-s1EqLMob.js">
       <link rel="modulepreload" crossorigin href="/assets/vendor-maps-CKyQrl1Y.js">
-      <link rel="stylesheet" crossorigin href="/assets/index-DuX6C93E.css">
+      <link rel="stylesheet" crossorigin href="/assets/index-BwMhaNdO.css">
     </head>
 
     <body>

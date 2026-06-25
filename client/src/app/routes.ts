@@ -78,6 +78,8 @@ export const router = createBrowserRouter([
       { index: true, Component: Home },
       { path: 'about', Component: About },
       { path: 'academics', Component: Academics },
+      // SEO alias: "programs" is a common search term for the academics page.
+      { path: 'programs', loader: () => redirect('/academics') },
       { path: 'admissions', Component: Admissions },
       { path: 'student-life', Component: StudentLife },
       { path: 'news', Component: News },
