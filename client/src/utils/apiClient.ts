@@ -44,8 +44,37 @@ export const apiFetch = async <T>(path: string, init: RequestInit = {}) => {
 
 // ─── Account Management ───────────────────────────────────────────────────────
 
-export const getAccounts = () =>
-  apiFetch<{ users: any[] }>('/accounts');
+export interface AccountListParams {
+  page?: number;
+  pageSize?: number;
+  role?: string;
+  status?: string;
+  search?: string;
+  gradeLevel?: string;
+  section?: string;
+}
+
+export interface AccountListResponse {
+  users: any[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+const toQueryString = (params: Record<string, unknown>) => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '' || value === 'all') {
+      return;
+    }
+    query.set(key, String(value));
+  });
+  const text = query.toString();
+  return text ? `?${text}` : '';
+};
+
+export const getAccounts = (params: AccountListParams = {}) =>
+  apiFetch<AccountListResponse>(`/accounts${toQueryString(params)}`);
 
 export const createAccount = (data: Record<string, any>) =>
   apiFetch<{ success: boolean; user: any }>('/accounts', {

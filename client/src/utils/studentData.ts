@@ -7,6 +7,7 @@
  * PrincipalRegistration and PrincipalTeachers.
  */
 
+import { getAccounts } from './apiClient';
 import { readDatabase, writeDatabase } from './database';
 
 /* ═══════════════════ Types ═══════════════════ */
@@ -121,6 +122,60 @@ function mapCloudStudent(s: any): StudentRecord {
   };
 }
 
+function splitDisplayName(name: string): { firstName: string; lastName: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) {
+    return { firstName: parts[0] || '', lastName: '' };
+  }
+  return {
+    firstName: parts.slice(0, -1).join(' '),
+    lastName: parts[parts.length - 1],
+  };
+}
+
+function normalizeGender(value: unknown): 'M' | 'F' {
+  const text = String(value || '').trim().toLowerCase();
+  return text.startsWith('f') ? 'F' : 'M';
+}
+
+function mapAccountStudent(user: any): StudentRecord {
+  const nameParts = splitDisplayName(user.displayName || user.username || '');
+  const firstName = user.firstName || nameParts.firstName || user.displayName || user.username || '';
+  const lastName = user.lastName || nameParts.lastName || '';
+  const displayName = user.displayName || `${firstName} ${lastName}`.trim();
+  const studentId = user.studentCode || user.username || user.systemId || user.uid;
+
+  return {
+    id: user.uid || studentId,
+    studentId,
+    lrn: user.lrn || '',
+    firstName,
+    lastName,
+    middleName: user.middleName || '',
+    displayName,
+    gender: normalizeGender(user.gender),
+    dateOfBirth: user.dateOfBirth || '',
+    gradeLevel: user.gradeLevel || '',
+    section: user.section || '',
+    guardianName: user.guardianName || user.emergencyContactName || '',
+    guardianContact: user.guardianContact || user.emergencyContactNumber || '',
+    guardianRelationship: user.guardianRelationship || '',
+    guardianEmail: user.guardianEmail || '',
+    guardianOccupation: user.guardianOccupation || '',
+    address: user.address || [user.city, user.province].filter(Boolean).join(', '),
+    email: user.email || '',
+    enrollmentDate: user.enrollmentDate || user.createdAt || '',
+    yearEnrolled: user.yearEnrolled || new Date(user.createdAt || Date.now()).getFullYear(),
+    previousSchool: user.previousSchool || null,
+    academicStatus: (user.academicStatus || 'regular') as any,
+    honorsStatus: user.honorsStatus || null,
+    gwa: user.gwa || 0,
+    remarks: user.remarks || null,
+    status: (user.status || 'active') as any,
+    batch: user.batch || CURRENT_BATCH,
+  };
+}
+
 function toPoolEntry(s: StudentRecord): StudentPoolEntry {
   const middleInitial = s.middleName ? ` ${s.middleName[0]}.` : '';
   return {
@@ -131,6 +186,16 @@ function toPoolEntry(s: StudentRecord): StudentPoolEntry {
     section: s.section,
     gender: s.gender,
   };
+}
+
+function mergeStudentsIntoBase(students: StudentRecord[]): void {
+  if (students.length === 0) return;
+
+  const existing = loadBaseStudents();
+  const byStudentId = new Map<string, StudentRecord>();
+  existing.forEach((student) => byStudentId.set(student.studentId || student.id, student));
+  students.forEach((student) => byStudentId.set(student.studentId || student.id, student));
+  writeDatabase('students', { students: Array.from(byStudentId.values()) });
 }
 
 /* ═══════════════════ Load base data from cloud cache ═══════════════════ */
@@ -191,8 +256,20 @@ export function getStudentsByGradeSection(batch?: string): GradeSectionGroup[] {
   const pool = getStudentPool(batch);
   const groups: GradeSectionGroup[] = [];
 
-  for (const grade of GRADE_LEVELS) {
-    const sections = SECTIONS_MAP[grade] || ['Section A'];
+  const gradeLevels = Array.from(new Set([
+    ...GRADE_LEVELS,
+    ...pool.map((student) => student.gradeLevel).filter(Boolean),
+  ])).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  for (const grade of gradeLevels) {
+    const sections = Array.from(new Set([
+      ...(SECTIONS_MAP[grade] || []),
+      ...pool
+        .filter((student) => student.gradeLevel === grade)
+        .map((student) => student.section)
+        .filter(Boolean),
+    ])).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
     for (const section of sections) {
       const students = pool
         .filter(s => s.gradeLevel === grade && s.section === section)
@@ -207,6 +284,26 @@ export function getStudentsByGradeSection(batch?: string): GradeSectionGroup[] {
   }
 
   return groups;
+}
+
+export async function syncStudentAccountsToStudentData(): Promise<StudentRecord[]> {
+  const pageSize = 100;
+  let page = 1;
+  const accountStudents: any[] = [];
+
+  for (;;) {
+    const result = await getAccounts({ role: 'student', page, pageSize });
+    const users = result.users || [];
+    accountStudents.push(...users);
+
+    const total = result.total ?? accountStudents.length;
+    if (accountStudents.length >= total || users.length < pageSize) break;
+    page += 1;
+  }
+
+  const students = accountStudents.map(mapAccountStudent);
+  mergeStudentsIntoBase(students);
+  return getAllStudents();
 }
 
 /** Get students for a specific grade-section combo */

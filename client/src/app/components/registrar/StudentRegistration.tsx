@@ -57,14 +57,14 @@ const PhotoPicker: React.FC<{
     <div className="flex items-center gap-4">
       <div
         onClick={() => ref.current?.click()}
-        className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center cursor-pointer hover:border-purple-400 overflow-hidden flex-shrink-0 transition-colors"
+        className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center cursor-pointer hover:border-[#185C20]/40 overflow-hidden flex-shrink-0 transition-colors"
       >
         {preview
           ? <img src={preview} alt="preview" className="w-full h-full object-cover" />
           : <Camera size={22} className="text-gray-300" />}
       </div>
       <div>
-        <button type="button" onClick={() => ref.current?.click()} className="text-sm text-purple-700 font-medium hover:underline">
+        <button type="button" onClick={() => ref.current?.click()} className="text-sm text-[#185C20] font-medium hover:underline">
           {preview ? 'Change photo' : 'Upload photo'}
         </button>
         <p className="text-xs text-gray-400 mt-0.5">JPG or PNG, max 10 MB</p>
@@ -149,7 +149,7 @@ const CodeDialog: React.FC<{ student: StudentRecord | null; onClose: () => void 
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === t ? 'text-purple-700 border-b-2 border-purple-700' : 'text-gray-400 hover:text-gray-600'}`}
+                className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === t ? 'text-[#185C20] border-b-2 border-[#185C20]' : 'text-gray-400 hover:text-gray-600'}`}
               >
                 {t === 'qr' ? 'QR Code' : 'Barcode'}
               </button>
@@ -174,7 +174,7 @@ const CodeDialog: React.FC<{ student: StudentRecord | null; onClose: () => void 
             <button
               onClick={handleDownload}
               disabled={tab === 'qr' ? !qrDataUrl : !barDataUrl}
-              className="flex items-center gap-2 px-5 py-2.5 bg-purple-700 text-white rounded-lg text-sm font-medium hover:bg-purple-800 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#185C20] text-white rounded-lg text-sm font-medium hover:bg-[#1a6925] disabled:opacity-50 transition-colors"
             >
               <Download size={15} />
               Download {tab === 'qr' ? 'QR' : 'Barcode'}
@@ -239,7 +239,7 @@ export const StudentFormFields: React.FC<{
   <div className="p-5 space-y-5">
     {/* Name */}
     <section>
-      <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Name</p>
+      <p className="text-[10px] font-bold text-[#185C20] uppercase tracking-wider mb-3">Name</p>
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className={labelClass}>First Name *</label>
@@ -262,7 +262,7 @@ export const StudentFormFields: React.FC<{
 
     {/* Academic */}
     <section>
-      <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Academic Info</p>
+      <p className="text-[10px] font-bold text-[#185C20] uppercase tracking-wider mb-3">Academic Info</p>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>Grade Level *</label>
@@ -284,7 +284,7 @@ export const StudentFormFields: React.FC<{
 
     {/* Family */}
     <section>
-      <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Family Info</p>
+      <p className="text-[10px] font-bold text-[#185C20] uppercase tracking-wider mb-3">Family Info</p>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>No. of Siblings *</label>
@@ -299,7 +299,7 @@ export const StudentFormFields: React.FC<{
 
     {/* Address */}
     <section>
-      <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Address</p>
+      <p className="text-[10px] font-bold text-[#185C20] uppercase tracking-wider mb-3">Address</p>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>Province *</label>
@@ -314,7 +314,7 @@ export const StudentFormFields: React.FC<{
 
     {/* Emergency Contact */}
     <section>
-      <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Emergency Contact</p>
+      <p className="text-[10px] font-bold text-[#185C20] uppercase tracking-wider mb-3">Emergency Contact</p>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>Contact Name *</label>
@@ -330,7 +330,7 @@ export const StudentFormFields: React.FC<{
     {/* Password */}
     {!hidePassword && (
       <section>
-        <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">
+        <p className="text-[10px] font-bold text-[#185C20] uppercase tracking-wider mb-3">
           {passwordRequired ? 'Login Credentials' : 'Change Password (optional)'}
         </p>
         {passwordRequired && (
@@ -436,7 +436,7 @@ const EditForm: React.FC<{
   return (
     <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
       <div className="p-5 pb-0">
-        <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-3">Student Photo</p>
+        <p className="text-[10px] font-bold text-[#185C20] uppercase tracking-wider mb-3">Student Photo</p>
         <PhotoPicker
           preview={photoPreview}
           onFile={(f) => { setPhotoFile(f); const r = new FileReader(); r.onload = (ev) => setPhotoPreview(ev.target?.result as string); r.readAsDataURL(f); }}
@@ -450,7 +450,7 @@ const EditForm: React.FC<{
           Cancel
         </button>
         <button type="submit" disabled={isLoading}
-          className="flex-1 px-4 py-2.5 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
+          className="flex-1 px-4 py-2.5 rounded-lg bg-[#185C20] text-white text-sm font-medium hover:bg-[#1a6925] disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
           {isLoading ? <><RefreshCw size={14} className="animate-spin" />Saving...</> : <><CheckCircle2 size={14} />Save Changes</>}
         </button>
       </div>
@@ -470,6 +470,7 @@ export const StudentRegistration: React.FC = () => {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+  const [totalStudents, setTotalStudents] = useState(0);
   const [showExportModal, setShowExportModal] = useState(false);
   const [codeStudent, setCodeStudent] = useState<StudentRecord | null>(null);
   const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
@@ -487,14 +488,22 @@ export const StudentRegistration: React.FC = () => {
   const loadStudents = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await getAccounts();
-      setStudents(((res.users ?? []) as StudentRecord[]).filter((u) => u.role === 'student'));
+      const res = await getAccounts({
+        role: 'student',
+        page,
+        pageSize: PAGE_SIZE,
+        search: searchQuery,
+        gradeLevel: gradeFilter,
+        section: sectionFilter,
+      });
+      setStudents((res.users ?? []) as StudentRecord[]);
+      setTotalStudents(res.total ?? res.users?.length ?? 0);
     } catch (err) {
       console.error('Failed to load students:', err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, searchQuery, gradeFilter, sectionFilter]);
 
   useEffect(() => { void loadStudents(); }, [loadStudents]);
 
@@ -524,15 +533,21 @@ export const StudentRegistration: React.FC = () => {
 
   // ─── Pagination ───────────────────────────────────────────────────────────────
   useEffect(() => { setPage(1); }, [searchQuery, gradeFilter, sectionFilter]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalStudents / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
-  const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const paged = filtered;
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   const handleDeleted = async () => {
     if (!deleteStudent) return;
     await deleteAccount(deleteStudent.uid);
     setStudents((p) => p.filter((s) => s.uid !== deleteStudent.uid));
+    setTotalStudents((p) => Math.max(0, p - 1));
     setDeleteStudent(null);
+    void loadStudents();
   };
 
   // ─── Bulk selection / editing ─────────────────────────────────────────────────
@@ -589,6 +604,7 @@ export const StudentRegistration: React.FC = () => {
         return updated ? { ...s, ...updated } : s;
       }));
       setBulkMsg(summarizeBulk('Updated', result).replace(/account/g, 'student'));
+      void loadStudents();
     } catch (err: any) {
       setBulkMsg(`Error: ${err?.message || 'Bulk update failed.'}`);
     } finally {
@@ -610,7 +626,9 @@ export const StudentRegistration: React.FC = () => {
         succeeded.add(uid);
       });
       setStudents((prev) => prev.filter((s) => !succeeded.has(s.uid)));
+      setTotalStudents((prev) => Math.max(0, prev - succeeded.size));
       setBulkMsg(summarizeBulk('Deleted', result).replace(/account/g, 'student'));
+      void loadStudents();
     } catch (err: any) {
       setBulkMsg(`Error: ${err?.message || 'Bulk delete failed.'}`);
     } finally {
@@ -640,7 +658,7 @@ export const StudentRegistration: React.FC = () => {
           <FileDown size={15} />Export ID Codes
         </button>
         <button onClick={() => setShowBatch(true)}
-          className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 bg-purple-700 text-white rounded-lg text-sm font-medium hover:bg-purple-800 transition-colors">
+          className="self-start sm:self-center flex items-center gap-2 px-4 py-2.5 bg-[#185C20] text-white rounded-lg text-sm font-medium hover:bg-[#1a6925] transition-colors">
           <UserPlus size={15} />Register Students
         </button>
       </div>
@@ -652,12 +670,12 @@ export const StudentRegistration: React.FC = () => {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search name, LRN, grade level, section..."
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" />
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20" />
           </div>
           <select
             value={gradeFilter}
             onChange={(event) => { setGradeFilter(event.target.value); setSectionFilter(''); }}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
           >
             <option value="">All grade levels</option>
             {gradeLevels.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
@@ -665,7 +683,7 @@ export const StudentRegistration: React.FC = () => {
           <select
             value={sectionFilter}
             onChange={(event) => setSectionFilter(event.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20"
           >
             <option value="">All sections</option>
             {sections.map((section) => <option key={section} value={section}>{section}</option>)}
@@ -673,16 +691,16 @@ export const StudentRegistration: React.FC = () => {
           <button onClick={loadStudents} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Refresh">
             <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
           </button>
-          <span className="text-xs text-gray-400 whitespace-nowrap">{filtered.length} student{filtered.length !== 1 ? 's' : ''}</span>
+          <span className="text-xs text-gray-400 whitespace-nowrap">{totalStudents} student{totalStudents !== 1 ? 's' : ''}</span>
         </div>
 
         {/* Bulk action bar */}
         {selection.count > 0 && (
-          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-purple-50 border-b border-purple-100">
-            <span className="text-sm font-medium text-purple-800">{selection.count} selected</span>
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-[#185C20]/5 border-b border-[#185C20]/10">
+            <span className="text-sm font-medium text-[#185C20]">{selection.count} selected</span>
             <button
               onClick={openBulkEdit}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-700 text-white text-xs font-medium hover:bg-purple-800 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#185C20] text-white text-xs font-medium hover:bg-[#1a6925] transition-colors"
             >
               <Pencil size={13} /> Edit selected
             </button>
@@ -723,7 +741,7 @@ export const StudentRegistration: React.FC = () => {
                       checked={allVisibleSelected}
                       indeterminate={someVisibleSelected}
                       onChange={() => selection.setMany(paged.map((s) => s.uid), !allVisibleSelected)}
-                      className="accent-purple-700"
+                      className="accent-[#185C20]"
                       ariaLabel="Select all students on this page"
                     />
                   </th>
@@ -738,21 +756,21 @@ export const StudentRegistration: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {paged.map((s) => (
-                  <tr key={s.uid} className={`transition-colors ${selection.isSelected(s.uid) ? 'bg-purple-50/60' : 'hover:bg-purple-50/30'}`}>
+                  <tr key={s.uid} className={`transition-colors ${selection.isSelected(s.uid) ? 'bg-[#185C20]/5' : 'hover:bg-gray-50/50'}`}>
                     <td className="px-4 py-3">
                       <SelectCheckbox
                         checked={selection.isSelected(s.uid)}
                         onChange={() => selection.toggle(s.uid)}
-                        className="accent-purple-700"
+                        className="accent-[#185C20]"
                         ariaLabel={`Select ${s.displayName}`}
                       />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        <div className="w-8 h-8 rounded-full bg-[#185C20]/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
                           {s.photoUrl
                             ? <img src={s.photoUrl} alt={s.displayName} className="w-full h-full object-cover" />
-                            : <span className="text-xs font-bold text-purple-700">{(s.firstName?.[0] ?? '') + (s.lastName?.[0] ?? '')}</span>}
+                            : <span className="text-xs font-bold text-[#185C20]">{(s.firstName?.[0] ?? '') + (s.lastName?.[0] ?? '')}</span>}
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{s.displayName}</p>
@@ -777,7 +795,7 @@ export const StudentRegistration: React.FC = () => {
                     <td className="px-4 py-3 text-center">
                       <button onClick={() => setCodeStudent(s)} disabled={!s.systemId}
                         title={s.systemId ? 'QR / Barcode' : 'No system ID'}
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-purple-600 hover:bg-purple-50 disabled:text-gray-300 disabled:hover:bg-transparent transition-colors">
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-[#185C20] hover:bg-[#185C20]/5 disabled:text-gray-300 disabled:hover:bg-transparent transition-colors">
                         <QrCode size={15} />
                       </button>
                     </td>
@@ -802,7 +820,7 @@ export const StudentRegistration: React.FC = () => {
         <Pagination
           page={safePage}
           pageCount={pageCount}
-          totalItems={filtered.length}
+          totalItems={totalStudents}
           pageSize={PAGE_SIZE}
           onChange={setPage}
         />
@@ -813,7 +831,13 @@ export const StudentRegistration: React.FC = () => {
         open={showBatch}
         onClose={() => setShowBatch(false)}
         existingStudents={students}
-        onRegistered={(created) => { if (created.length > 0) setStudents((p) => [...created, ...p]); }}
+        onRegistered={(created) => {
+          if (created.length > 0) {
+            setStudents((p) => [...created, ...p]);
+            setTotalStudents((p) => p + created.length);
+            void loadStudents();
+          }
+        }}
       />
 
       {/* Edit modal */}
@@ -834,6 +858,7 @@ export const StudentRegistration: React.FC = () => {
               onUpdated={(updated) => {
                 setStudents((p) => p.map((s) => s.uid === updated.uid ? updated : s));
                 setEditStudent(null);
+                void loadStudents();
               }}
               onCancel={() => setEditStudent(null)}
             />
@@ -857,7 +882,11 @@ export const StudentRegistration: React.FC = () => {
         onClose={() => setShowBulkImport(false)}
         existingStudents={students}
         onImported={(created) => {
-          if (created.length > 0) setStudents((p) => [...created, ...p]);
+          if (created.length > 0) {
+            setStudents((p) => [...created, ...p]);
+            setTotalStudents((p) => p + created.length);
+            void loadStudents();
+          }
         }}
       />
 
@@ -890,7 +919,7 @@ export const StudentRegistration: React.FC = () => {
                 label={field.label}
                 enabled={bulkEnabled.has(field.key)}
                 onToggle={(en) => toggleBulkField(field.key, en)}
-                accentClass="accent-purple-700"
+                accentClass="accent-[#185C20]"
               >
                 <input
                   value={bulkValues[field.key] || ''}
@@ -909,7 +938,7 @@ export const StudentRegistration: React.FC = () => {
           <button
             onClick={() => setConfirmBulk('edit')}
             disabled={bulkEnabled.size === 0}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-50 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#185C20] text-white text-sm font-medium hover:bg-[#1a6925] disabled:opacity-50 transition-colors"
           >
             <Save size={14} /> Apply to {selection.count} student{selection.count === 1 ? '' : 's'}
           </button>

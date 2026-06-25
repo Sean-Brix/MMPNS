@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const inputClass =
-  'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all';
+  'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/20 focus:border-[#185C20] transition-all';
 export const labelClass = 'block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1';
 
 // Compact pager: « Prev · page X of Y · Next » plus an item-range summary.

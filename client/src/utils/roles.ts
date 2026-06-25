@@ -25,7 +25,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   student: 'Student',
   principal: 'Principal',
   librarian: 'Librarian',
-  registrar: 'Registrar',
+  registrar: 'Multi-Role',
   security: 'Security',
   admin: 'System Admin',
   superadmin: 'Superadmin',

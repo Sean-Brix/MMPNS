@@ -11,6 +11,7 @@ import {
   useRowSelection, SelectCheckbox, BulkEditField, ConfirmDialog,
   runBulk, summarizeBulk,
 } from '../common/BulkActions';
+import { Pagination } from '../registrar/shared';
 
 interface AccountManagementProps {
   callerRole: 'registrar' | 'admin' | 'superadmin';
@@ -18,7 +19,7 @@ interface AccountManagementProps {
 
 const ROLE_LABELS: Record<string, string> = {
   teacher: 'Teacher', student: 'Student', principal: 'Principal',
-  librarian: 'Librarian', registrar: 'Registrar', admin: 'System Admin',
+  librarian: 'Librarian', registrar: 'Multi-Role', admin: 'System Admin',
   security: 'Security', superadmin: 'Superadmin',
 };
 
@@ -71,6 +72,7 @@ const EDITABLE_ROLES_BY_CALLER: Record<AccountManagementProps['callerRole'], Use
   superadmin: ['teacher', 'student', 'principal', 'librarian', 'registrar', 'security', 'admin', 'superadmin'],
 };
 
+const ACCOUNT_PAGE_SIZE = 10;
 const STAFF_DETAIL_ROLES = new Set<UserRole>(['teacher', 'principal', 'librarian', 'registrar', 'security', 'admin']);
 const inputClass = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#185C20]/30 focus:border-[#185C20] transition-all';
 const labelClass = 'block text-xs font-medium text-gray-700 mb-1';
@@ -104,6 +106,8 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [page, setPage] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
 
   // Password reset state
   const [resetTarget, setResetTarget] = useState<{ uid: string; displayName: string } | null>(null);
@@ -126,32 +130,31 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await getAccounts();
+      const res = await getAccounts({
+        page,
+        pageSize: ACCOUNT_PAGE_SIZE,
+        search: searchQuery,
+        role: roleFilter,
+        status: statusFilter,
+      });
       setUsers(res.users || []);
+      setTotalUsers(res.total ?? res.users?.length ?? 0);
     } catch (err) {
       console.error('Failed to load accounts:', err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, searchQuery, roleFilter, statusFilter]);
 
   useEffect(() => { void loadUsers(); }, [loadUsers]);
 
   useEffect(() => {
-    let result = [...users];
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (u) =>
-          u.displayName?.toLowerCase().includes(q) ||
-          u.username?.toLowerCase().includes(q) ||
-          u.email?.toLowerCase().includes(q),
-      );
-    }
-    if (roleFilter !== 'all') result = result.filter((u) => u.role === roleFilter);
-    if (statusFilter !== 'all') result = result.filter((u) => u.status === statusFilter);
-    setFilteredUsers(result);
-  }, [users, searchQuery, roleFilter, statusFilter]);
+    setFilteredUsers(users);
+  }, [users]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, roleFilter, statusFilter]);
 
   const handleToggleStatus = async (user: any) => {
     const newStatus = user.status === 'active' ? 'inactive' : 'active';
@@ -159,6 +162,7 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
       await updateAccountStatus(user.uid, newStatus);
       setUsers((prev) => prev.map((u) => u.uid === user.uid ? { ...u, status: newStatus } : u));
       setActionMsg(`${user.displayName} has been ${newStatus === 'active' ? 'activated' : 'deactivated'}.`);
+      void loadUsers();
       setTimeout(() => setActionMsg(''), 3000);
     } catch (err: any) {
       setActionMsg(`Error: ${err?.message || 'Failed to update status.'}`);
@@ -271,6 +275,7 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
       setUsers((prev) => prev.map((user) => (user.uid === editForm.uid ? res.user : user)));
       setEditForm(null);
       setActionMsg(`${res.user.displayName || username} has been updated.`);
+      void loadUsers();
     } catch (err: any) {
       setActionMsg(`Error: ${err?.message || 'Failed to update account.'}`);
     } finally {
@@ -279,8 +284,14 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
     }
   };
 
-  const uniqueRoles = Array.from(new Set(users.map((u) => u.role)));
+  const pageCount = Math.max(1, Math.ceil(totalUsers / ACCOUNT_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const uniqueRoles = Object.keys(ROLE_LABELS);
   const editableRoles = EDITABLE_ROLES_BY_CALLER[callerRole] || [];
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   // ─── Bulk selection ───────────────────────────────────────────────────────────
   const editableRoleSet = useMemo(() => new Set(editableRoles), [editableRoles]);
@@ -342,6 +353,7 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
       });
       setUsers((prev) => prev.map((u) => updatedById.get(u.uid) || u));
       setActionMsg(summarizeBulk('Updated', result));
+      void loadUsers();
     } catch (err: any) {
       setActionMsg(`Error: ${err?.message || 'Bulk update failed.'}`);
     } finally {
@@ -364,7 +376,9 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
         succeeded.add(uid);
       });
       setUsers((prev) => prev.filter((u) => !succeeded.has(u.uid)));
+      setTotalUsers((prev) => Math.max(0, prev - succeeded.size));
       setActionMsg(summarizeBulk('Deleted', result));
+      void loadUsers();
     } catch (err: any) {
       setActionMsg(`Error: ${err?.message || 'Bulk delete failed.'}`);
     } finally {
@@ -414,8 +428,10 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
           <CreateAccountForm
             callerRole={callerRole}
             onCreated={(user) => {
-              setUsers((prev) => [...prev, user]);
+              setUsers((prev) => [user, ...prev]);
+              setTotalUsers((prev) => prev + 1);
               setTab('all');
+              void loadUsers();
             }}
             onCancel={() => setTab('all')}
           />
@@ -456,7 +472,7 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
             <button onClick={loadUsers} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
               <RefreshCw className="w-4 h-4" />
             </button>
-            <span className="text-xs text-gray-400">{filteredUsers.length} account{filteredUsers.length !== 1 ? 's' : ''}</span>
+            <span className="text-xs text-gray-400">{totalUsers} account{totalUsers !== 1 ? 's' : ''}</span>
           </div>
 
           {/* Bulk action bar */}
@@ -666,6 +682,13 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
                 </tbody>
               </table>
             </div>
+            <Pagination
+              page={safePage}
+              pageCount={pageCount}
+              totalItems={totalUsers}
+              pageSize={ACCOUNT_PAGE_SIZE}
+              onChange={setPage}
+            />
           )}
         </div>
       )}

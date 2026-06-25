@@ -65,7 +65,7 @@ router.get("/objects/url", async (req, res, next) => {
 
 router.post(
     "/principal-edits",
-    requireAuth(["teacher", "admin", "superadmin", "principal"]),
+    requireAuth(["teacher", "admin", "superadmin", "principal", "registrar"]),
     async (req, res, next) => {
       try {
         const {fields, file} = await parseMultipartUpload(req);

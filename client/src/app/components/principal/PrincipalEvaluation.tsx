@@ -17,6 +17,7 @@ import {
   type RubricCriterion,
   type TeacherEvaluation,
 } from '../../../utils/teacherEvaluations';
+import { Pagination } from '../registrar/shared';
 
 const Modal: React.FC<{ open: boolean; onClose: () => void; children: React.ReactNode; maxW?: string }> = ({ open, onClose, children, maxW = 'max-w-lg' }) => (
   <AnimatePresence>
@@ -40,6 +41,7 @@ export const PrincipalEvaluation: React.FC = () => {
   const [evaluations, setEvaluations] = useState<TeacherEvaluation[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'rubrics' | 'evaluate'>('overview');
   const [selectedAnalyticsTeacher, setSelectedAnalyticsTeacher] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
   const [editingRubric, setEditingRubric] = useState<EvaluationRubric | null>(null);
   const [showRubricModal, setShowRubricModal] = useState(false);
 
@@ -153,6 +155,14 @@ export const PrincipalEvaluation: React.FC = () => {
   };
 
   const selectedRubric = rubrics.find(r => r.id === evalRubricId);
+  const HISTORY_PAGE_SIZE = 10;
+  const sortedEvaluations = [...evaluations].sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
+  const historyPageCount = Math.max(1, Math.ceil(sortedEvaluations.length / HISTORY_PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, historyPageCount);
+  const pagedEvaluations = sortedEvaluations.slice(
+    (safeHistoryPage - 1) * HISTORY_PAGE_SIZE,
+    safeHistoryPage * HISTORY_PAGE_SIZE,
+  );
   const analyticsTeacher = teachers.find((teacher) => teacher.username === selectedAnalyticsTeacher) || teachers[0];
   const teacherEvaluations = [...evaluations]
     .filter((evaluation) => evaluation.teacherUsername === analyticsTeacher?.username)
@@ -178,6 +188,10 @@ export const PrincipalEvaluation: React.FC = () => {
     : [];
   const strongestCriterion = [...latestCriterionScores].sort((a, b) => b.pct - a.pct)[0];
   const focusCriterion = [...latestCriterionScores].sort((a, b) => a.pct - b.pct)[0];
+
+  useEffect(() => {
+    if (historyPage > historyPageCount) setHistoryPage(historyPageCount);
+  }, [historyPage, historyPageCount]);
 
   return (
     <div className="border border-gray-200 bg-white overflow-hidden">
@@ -250,7 +264,7 @@ export const PrincipalEvaluation: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...evaluations].sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt)).map(ev => {
+                  {pagedEvaluations.map(ev => {
                     const rubric = rubrics.find(r => r.id === ev.rubricId);
                     const overall = computeEvaluationOverall(ev, rubric);
                     const rating = getEvaluationRating(overall);
@@ -268,6 +282,13 @@ export const PrincipalEvaluation: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              page={safeHistoryPage}
+              pageCount={historyPageCount}
+              totalItems={sortedEvaluations.length}
+              pageSize={HISTORY_PAGE_SIZE}
+              onChange={setHistoryPage}
+            />
           </div>
         </>
       )}

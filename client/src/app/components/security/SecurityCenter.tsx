@@ -26,6 +26,7 @@ import {
 import { isAdminRole, getCurrentRole } from '../../../utils/auth';
 import { readDatabase, readDatabaseOnline, writeDatabase } from '../../../utils/database';
 import { QrKiosk } from '../developer/QrKiosk';
+import { Pagination } from '../registrar/shared';
 
 export type SecuritySection = 'overview' | 'kiosk' | 'analytics' | 'attendance' | 'settings';
 
@@ -148,7 +149,9 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
   const [settingsMessage, setSettingsMessage] = useState('');
   const [syncStatus, setSyncStatus] = useState<LocalSyncStatus | null>(null);
   const [localServerOnline, setLocalServerOnline] = useState(false);
-  const canSync = isAdminRole() || getCurrentRole() === 'security';
+  const [attendancePage, setAttendancePage] = useState(1);
+  const canSync = isAdminRole() || getCurrentRole() === 'security' || getCurrentRole() === 'registrar';
+  const ATTENDANCE_PAGE_SIZE = 12;
 
   const loadSummary = useCallback(async () => {
     setIsLoading(true);
@@ -243,10 +246,13 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
 
   const handleSyncAndRefresh = useCallback(async () => {
     if (localServerOnline && !syncStatus?.isSyncing) {
-      try { await triggerManualSync(); } catch { /* ignore */ }
+      try {
+        await triggerManualSync();
+        await loadSyncStatus();
+      } catch { /* ignore */ }
     }
-    void loadSummary();
-  }, [localServerOnline, syncStatus?.isSyncing, loadSummary]);
+    await loadSummary();
+  }, [localServerOnline, syncStatus?.isSyncing, loadSummary, loadSyncStatus]);
 
   const handleScanModeChange = useCallback((mode: AttendanceScanMode) => {
     const nextSettings = {
@@ -261,6 +267,17 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
     [summary],
   );
   const maxGradeCount = Math.max(...gradeRows.map(([, count]) => count), 1);
+  const attendanceRecords = summary?.records || [];
+  const attendancePageCount = Math.max(1, Math.ceil(attendanceRecords.length / ATTENDANCE_PAGE_SIZE));
+  const safeAttendancePage = Math.min(attendancePage, attendancePageCount);
+  const pagedAttendanceRecords = attendanceRecords.slice(
+    (safeAttendancePage - 1) * ATTENDANCE_PAGE_SIZE,
+    safeAttendancePage * ATTENDANCE_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setAttendancePage(1);
+  }, [selectedDate, attendanceRecords.length]);
 
   const stats = [
     {
@@ -627,43 +644,52 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
       </div>
       {isLoading ? (
         <div className="p-12 text-center text-sm text-gray-400">Loading attendance...</div>
-      ) : !summary?.records.length ? (
+      ) : attendanceRecords.length === 0 ? (
         <EmptyState message="No attendance records for this date." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                {['Student', 'Grade & Section', 'Time In', 'Time Out', 'Scans', 'Status'].map((heading) => (
-                  <th key={heading} className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-gray-400">
-                    {heading}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {summary.records.map((record) => (
-                <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{record.displayName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {[record.gradeLevel, record.section].filter(Boolean).join(' - ') || 'Unassigned'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{formatTime(record.firstScanAt)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{formatTime(record.timeOutAt)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.scanCount}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 text-xs ${
-                      record.timeOutAt ? 'text-cyan-700' : 'text-green-700'
-                    }`}>
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      {record.timeOutAt ? 'Timed out' : 'Present'}
-                    </span>
-                  </td>
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  {['Student', 'Grade & Section', 'Time In', 'Time Out', 'Scans', 'Status'].map((heading) => (
+                    <th key={heading} className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-gray-400">
+                      {heading}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pagedAttendanceRecords.map((record) => (
+                  <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{record.displayName}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {[record.gradeLevel, record.section].filter(Boolean).join(' - ') || 'Unassigned'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{formatTime(record.firstScanAt)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{formatTime(record.timeOutAt)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{record.scanCount}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 text-xs ${
+                        record.timeOutAt ? 'text-cyan-700' : 'text-green-700'
+                      }`}>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {record.timeOutAt ? 'Timed out' : 'Present'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={safeAttendancePage}
+            pageCount={attendancePageCount}
+            totalItems={attendanceRecords.length}
+            pageSize={ATTENDANCE_PAGE_SIZE}
+            onChange={setAttendancePage}
+          />
+        </>
       )}
     </div>
   );

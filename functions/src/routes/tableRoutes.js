@@ -12,7 +12,13 @@ const {
 // eslint-disable-next-line new-cap
 const router = express.Router();
 
-const tableWriteRoles = ["teacher", "admin", "superadmin", "principal"];
+const tableWriteRoles = [
+  "teacher",
+  "admin",
+  "superadmin",
+  "principal",
+  "registrar",
+];
 // Librarians manage library records without broad table write access.
 const libraryTables = new Set(["books", "library_circulation"]);
 const libraryTableWriteRoles = [...tableWriteRoles, "librarian"];

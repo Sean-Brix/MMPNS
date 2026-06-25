@@ -23,15 +23,25 @@ const ADMINISTRATION_ROLES = [
 ];
 
 const ACCOUNT_MANAGER_ROLES = ["registrar", "admin", "superadmin"];
-const ATTENDANCE_MANAGER_ROLES = ["security", "admin", "superadmin"];
-const ATTENDANCE_VIEWER_ROLES = ["security", "admin", "superadmin", "registrar"];
+const ATTENDANCE_MANAGER_ROLES = [
+  "security",
+  "registrar",
+  "admin",
+  "superadmin",
+];
+const ATTENDANCE_VIEWER_ROLES = [
+  "security",
+  "admin",
+  "superadmin",
+  "registrar",
+];
 
 const ROLE_PORTAL_ROUTES = {
   teacher: "/teacher-portal",
   student: "/student-portal",
-  principal: "/admin-portal",
+  principal: "/principal-portal",
   librarian: "/admin-portal",
-  registrar: "/admin-portal",
+  registrar: "/registrar-portal",
   security: "/admin-portal",
   admin: "/admin-portal",
   superadmin: "/admin-portal",

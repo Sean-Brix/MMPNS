@@ -21,7 +21,7 @@ const CREATABLE_ROLES_BY_CALLER: Record<string, { value: UserRole; label: string
     { value: 'student',   label: 'Student' },
     { value: 'principal', label: 'Principal' },
     { value: 'librarian', label: 'Librarian' },
-    { value: 'registrar', label: 'Registrar' },
+    { value: 'registrar', label: 'Multi-Role' },
     { value: 'security',  label: 'Security' },
   ],
   superadmin: [
@@ -29,7 +29,7 @@ const CREATABLE_ROLES_BY_CALLER: Record<string, { value: UserRole; label: string
     { value: 'student',    label: 'Student' },
     { value: 'principal',  label: 'Principal' },
     { value: 'librarian',  label: 'Librarian' },
-    { value: 'registrar',  label: 'Registrar' },
+    { value: 'registrar',  label: 'Multi-Role' },
     { value: 'security',   label: 'Security' },
     { value: 'admin',      label: 'System Admin' },
     { value: 'superadmin', label: 'Superadmin' },

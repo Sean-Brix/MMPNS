@@ -4,6 +4,7 @@ import {
   BookOpen, Plus, Trash2, X, Check, Pencil, Percent
 } from 'lucide-react';
 import { readDatabase, writeDatabase } from '../../../utils/database';
+import { Pagination } from '../registrar/shared';
 
 /* ═══════════════════ Types ═══════════════════ */
 export interface MasterSubject {
@@ -59,6 +60,7 @@ const Modal: React.FC<{ open: boolean; onClose: () => void; children: React.Reac
 /* ═══════════════════ Component ═══════════════════ */
 export const PrincipalSubjects: React.FC = () => {
   const [subjects, setSubjects] = useState<MasterSubject[]>([]);
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<MasterSubject | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -118,6 +120,14 @@ export const PrincipalSubjects: React.FC = () => {
 
   const majors = subjects.filter(s => s.type === 'major');
   const minors = subjects.filter(s => s.type === 'minor');
+  const PAGE_SIZE = 10;
+  const pageCount = Math.max(1, Math.ceil(subjects.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pagedSubjects = subjects.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   return (
     <div className="border border-gray-200 bg-white overflow-hidden">
@@ -151,7 +161,7 @@ export const PrincipalSubjects: React.FC = () => {
           </div>
 
           {/* Rows */}
-          {subjects.map(sub => (
+          {pagedSubjects.map(sub => (
             <div key={sub.id} className="group">
               <div className="flex items-center gap-3 px-4 lg:px-5 py-3 border-b border-gray-100 hover:bg-gray-50/30 transition-colors">
                 {/* Icon + name */}
@@ -206,6 +216,13 @@ export const PrincipalSubjects: React.FC = () => {
               </div>
             </div>
           ))}
+          <Pagination
+            page={safePage}
+            pageCount={pageCount}
+            totalItems={subjects.length}
+            pageSize={PAGE_SIZE}
+            onChange={setPage}
+          />
         </>
       )}
 

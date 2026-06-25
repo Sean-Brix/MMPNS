@@ -11,7 +11,7 @@ const {
 const {firestore} = require("../firebaseAdmin");
 const {badRequest} = require("../httpError");
 
-const BULK_ALLOWED_ROLES = ["admin", "superadmin"];
+const BULK_ALLOWED_ROLES = ["registrar", "admin", "superadmin"];
 
 // eslint-disable-next-line new-cap
 const router = express.Router();

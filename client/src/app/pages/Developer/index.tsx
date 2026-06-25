@@ -121,7 +121,7 @@ const accountKindOptions: Array<{ kind: AccountKind; label: string }> = [
   { kind: 'student', label: 'Student' },
   { kind: 'librarian', label: 'Librarian' },
   { kind: 'principal', label: 'Principal' },
-  { kind: 'registrar', label: 'Registrar' },
+  { kind: 'registrar', label: 'Multi-Role' },
   { kind: 'systemAdmin', label: 'System Admin' },
   { kind: 'superadmin', label: 'Dev/Superadmin' },
 ];
@@ -151,7 +151,7 @@ const getDefaultDepartmentForKind = (kind: AccountKind) => {
 
 const getDefaultPositionForKind = (kind: AccountKind) => {
   if (kind === 'librarian') return 'Librarian';
-  if (kind === 'registrar') return 'Registrar';
+  if (kind === 'registrar') return 'Multi-Role';
   if (kind === 'principal') return 'Principal';
   if (kind === 'teacher') return 'Teacher';
   return '';

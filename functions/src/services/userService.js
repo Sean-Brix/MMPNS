@@ -318,13 +318,62 @@ const createStudentsBatch = async (students, createdBy) => {
   return {created: docs.map((doc) => stripSensitiveFields(doc)), results};
 };
 
-const listUsers = async () => {
+const listUsers = async (options = {}) => {
   const snapshot = await firestore
       .collection(USERS_COLLECTION)
       .orderBy("createdAt", "asc")
       .get();
 
-  return snapshot.docs.map((doc) => stripSensitiveFields(doc.data()));
+  let users = snapshot.docs.map((doc) => stripSensitiveFields(doc.data()));
+
+  const role = String(options.role || "").trim().toLowerCase();
+  if (role) {
+    users = users.filter((user) => String(user.role || "") === role);
+  }
+
+  const status = String(options.status || "").trim().toLowerCase();
+  if (status) {
+    users = users.filter((user) => String(user.status || "") === status);
+  }
+
+  const gradeLevel = String(options.gradeLevel || "").trim();
+  if (gradeLevel) {
+    users = users.filter((user) => String(user.gradeLevel || "") === gradeLevel);
+  }
+
+  const section = String(options.section || "").trim();
+  if (section) {
+    users = users.filter((user) => String(user.section || "") === section);
+  }
+
+  const search = String(options.search || "").trim().toLowerCase();
+  if (search) {
+    users = users.filter((user) => [
+      user.displayName,
+      user.username,
+      user.email,
+      user.lrn,
+      user.gradeLevel,
+      user.section,
+      user.province,
+      user.city,
+    ].some((value) => String(value || "").toLowerCase().includes(search)));
+  }
+
+  const pageSize = Number(options.pageSize || 0);
+  if (!pageSize) return users;
+
+  const page = Math.max(1, Number(options.page || 1));
+  const total = users.length;
+  const safePageSize = Math.min(Math.max(1, pageSize), 100);
+  const start = (page - 1) * safePageSize;
+
+  return {
+    users: users.slice(start, start + safePageSize),
+    total,
+    page,
+    pageSize: safePageSize,
+  };
 };
 
 const updateUserStatus = async (uid, status) => {

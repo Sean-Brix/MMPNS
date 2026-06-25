@@ -29,7 +29,23 @@ const STUDENT_SCAN_ROLES = [...ATTENDANCE_MANAGER_ROLES, "librarian"];
 // GET /api/accounts — list all users
 router.get("/", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
   try {
-    const users = await listUsers();
+    const pageSize = Number(req.query.pageSize || 0);
+    const result = await listUsers({
+      page: req.query.page,
+      pageSize,
+      role: req.query.role,
+      status: req.query.status,
+      search: req.query.search,
+      gradeLevel: req.query.gradeLevel,
+      section: req.query.section,
+    });
+
+    if (pageSize) {
+      res.json(result);
+      return;
+    }
+
+    const users = result;
     res.json({users});
   } catch (error) {
     next(error);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, X, Check, Users, ChevronRight,
@@ -9,11 +9,13 @@ import { loadMasterSubjects, type MasterSubject } from './PrincipalSubjects';
 import {
   getStudentPool,
   getStudentsByGradeSection,
+  syncStudentAccountsToStudentData,
   type StudentPoolEntry,
   type GradeSectionGroup,
   getTeachers,
 } from '../../../utils/studentData';
 import { readDatabase, writeDatabase } from '../../../utils/database';
+import { Pagination } from '../registrar/shared';
 
 /* ═══════════════════ Types ═══════════════════ */
 interface AssignedSubject {
@@ -87,6 +89,7 @@ const Modal: React.FC<{ open: boolean; onClose: () => void; children: React.Reac
 export const PrincipalTeachers: React.FC = () => {
   const [teachers, setTeachers] = useState<TeacherRecord[]>([]);
   const [masterSubjects, setMasterSubjects] = useState<MasterSubject[]>([]);
+  const [teacherPage, setTeacherPage] = useState(1);
   const [selectedTeacher, setSelectedTeacher] = useState<string | null>(null);
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
 
@@ -110,20 +113,44 @@ export const PrincipalTeachers: React.FC = () => {
   const [addedToast, setAddedToast] = useState<{ count: number; mode: string } | null>(null);
 
   // Load student pool from shared data layer
-  const studentPool = useMemo(() => getStudentPool(), []);
-  const gradeSectionGroups = useMemo(() => getStudentsByGradeSection(), []);
+  const [studentPool, setStudentPool] = useState<StudentPoolEntry[]>([]);
+  const [gradeSectionGroups, setGradeSectionGroups] = useState<GradeSectionGroup[]>([]);
+
+  const refreshStudentPool = useCallback(() => {
+    setStudentPool(getStudentPool());
+    setGradeSectionGroups(getStudentsByGradeSection());
+  }, []);
 
   useEffect(() => {
-    const stored = readDatabase<{ teachers: TeacherRecord[] }>('teacher_records');
-    if (stored?.teachers && stored.teachers.length > 0) {
-      setTeachers(stored.teachers);
-    } else {
-      const defaults = buildDefaultTeachers();
-      setTeachers(defaults);
-      writeDatabase('teacher_records', { teachers: defaults });
-    }
-    setMasterSubjects(loadMasterSubjects());
-  }, []);
+    let cancelled = false;
+
+    const load = async () => {
+      setMasterSubjects(loadMasterSubjects());
+      refreshStudentPool();
+      try {
+        await syncStudentAccountsToStudentData();
+      } catch (error) {
+        console.error('Failed to sync registered students for teacher assignment:', error);
+      }
+      if (cancelled) return;
+      refreshStudentPool();
+
+      const stored = readDatabase<{ teachers: TeacherRecord[] }>('teacher_records');
+      if (stored?.teachers && stored.teachers.length > 0) {
+        setTeachers(stored.teachers);
+      } else {
+        const defaults = buildDefaultTeachers();
+        setTeachers(defaults);
+        writeDatabase('teacher_records', { teachers: defaults });
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshStudentPool]);
 
   // Re-load master subjects when returning to teacher list
   useEffect(() => {
@@ -188,6 +215,17 @@ export const PrincipalTeachers: React.FC = () => {
   };
 
   const teacher = teachers.find(t => t.username === selectedTeacher);
+  const TEACHER_PAGE_SIZE = 10;
+  const teacherPageCount = Math.max(1, Math.ceil(teachers.length / TEACHER_PAGE_SIZE));
+  const safeTeacherPage = Math.min(teacherPage, teacherPageCount);
+  const pagedTeachers = teachers.slice(
+    (safeTeacherPage - 1) * TEACHER_PAGE_SIZE,
+    safeTeacherPage * TEACHER_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    if (teacherPage > teacherPageCount) setTeacherPage(teacherPageCount);
+  }, [teacherPage, teacherPageCount]);
 
   const resolveSubject = (subjectId: string): MasterSubject | undefined =>
     masterSubjects.find(s => s.id === subjectId);
@@ -283,7 +321,7 @@ export const PrincipalTeachers: React.FC = () => {
               <p className="text-[10px] text-gray-400 mt-1">Click "Add Teacher" to get started</p>
             </div>
           )}
-          {teachers.map(t => {
+          {pagedTeachers.map(t => {
             const subjectNames = t.subjects
               .map(s => resolveSubject(s.subjectId)?.name || s.subjectId)
               .join(', ');
