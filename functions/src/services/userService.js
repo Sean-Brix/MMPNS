@@ -351,6 +351,8 @@ const listUsers = async (options = {}) => {
     users = users.filter((user) => [
       user.displayName,
       user.username,
+      user.studentCode,
+      user.systemId,
       user.email,
       user.lrn,
       user.gradeLevel,

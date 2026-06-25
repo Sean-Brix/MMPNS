@@ -523,6 +523,8 @@ export const StudentRegistration: React.FC = () => {
     const q = searchQuery.toLowerCase();
     return (
       s.displayName?.toLowerCase().includes(q) ||
+      s.studentCode?.toLowerCase().includes(q) ||
+      s.systemId?.toLowerCase().includes(q) ||
       s.lrn?.includes(q) ||
       s.gradeLevel?.toLowerCase().includes(q) ||
       s.section?.toLowerCase().includes(q) ||

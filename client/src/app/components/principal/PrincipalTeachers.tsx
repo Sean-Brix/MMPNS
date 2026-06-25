@@ -363,6 +363,13 @@ export const PrincipalTeachers: React.FC = () => {
             );
           })}
         </div>
+        <Pagination
+          page={safeTeacherPage}
+          pageCount={teacherPageCount}
+          totalItems={teachers.length}
+          pageSize={TEACHER_PAGE_SIZE}
+          onChange={setTeacherPage}
+        />
 
         {/* ═══════════ ADD TEACHER MODAL ═══════════ */}
         <Modal open={showAddTeacher} onClose={() => setShowAddTeacher(false)}>

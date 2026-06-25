@@ -521,7 +521,8 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
               {searchQuery && <p className="text-gray-400 text-xs mt-1">Try clearing the search filter.</p>}
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
@@ -681,14 +682,15 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({ callerRole
                   ))}
                 </tbody>
               </table>
-            </div>
-            <Pagination
-              page={safePage}
-              pageCount={pageCount}
-              totalItems={totalUsers}
-              pageSize={ACCOUNT_PAGE_SIZE}
-              onChange={setPage}
-            />
+              </div>
+              <Pagination
+                page={safePage}
+                pageCount={pageCount}
+                totalItems={totalUsers}
+                pageSize={ACCOUNT_PAGE_SIZE}
+                onChange={setPage}
+              />
+            </>
           )}
         </div>
       )}
