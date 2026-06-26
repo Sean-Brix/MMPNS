@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  LayoutDashboard, BookOpen, BookMarked, Search, BarChart3, ScanLine,
+  LayoutDashboard, BookOpen, BookMarked, Search, BarChart3, ScanLine, Clock,
 } from 'lucide-react';
 import { PortalLayout, type SidebarItem } from '../../components/portal/PortalLayout';
 import { BookManagement } from '../../components/librarian/BookManagement';
 import { CirculationPage } from '../../components/librarian/CirculationPage';
+import { EntryLogsPage } from '../../components/librarian/EntryLogsPage';
 import { BorrowHistoryPage } from '../../components/librarian/BorrowHistoryPage';
 import { LibrarianDashboard } from '../../components/librarian/LibrarianDashboard';
 import { StudentLookup } from '../../components/librarian/StudentLookup';
@@ -15,6 +16,7 @@ import { useNavigate } from 'react-router';
 const MENU_ITEMS: SidebarItem[] = [
   { id: 'dashboard',  label: 'Dashboard',     icon: LayoutDashboard },
   { id: 'circulation',label: 'Circulation',    icon: ScanLine },
+  { id: 'entryLogs',  label: 'Entry Logs',     icon: Clock },
   { id: 'catalog',    label: 'Books Catalog',  icon: BookOpen },
   { id: 'borrowed',   label: 'Borrow History', icon: BookMarked },
   { id: 'lookup',     label: 'Student Lookup', icon: Search },
@@ -42,7 +44,7 @@ export const LibrarianPortal: React.FC = () => {
   useEffect(() => {
     const session = getStoredSession();
     if (session?.role === 'librarian') {
-      void initializeDatabase(['books', 'library_circulation', 'students']);
+      void initializeDatabase(['books', 'library_circulation', 'library_entry_logs', 'students']);
       setIsAuthenticated(true);
       setUser({
         role: 'librarian',
@@ -72,6 +74,8 @@ export const LibrarianPortal: React.FC = () => {
     switch (activeSection) {
       case 'circulation':
         return <CirculationPage user={user} />;
+      case 'entryLogs':
+        return <EntryLogsPage user={user} />;
       case 'catalog':
         return <BookManagement />;
       case 'borrowed':

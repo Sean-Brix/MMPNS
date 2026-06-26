@@ -20,7 +20,11 @@ const tableWriteRoles = [
   "registrar",
 ];
 // Librarians manage library records without broad table write access.
-const libraryTables = new Set(["books", "library_circulation"]);
+const libraryTables = new Set([
+  "books",
+  "library_circulation",
+  "library_entry_logs",
+]);
 const libraryTableWriteRoles = [...tableWriteRoles, "librarian"];
 const developerRoles = new Set(["admin", "superadmin"]);
 
