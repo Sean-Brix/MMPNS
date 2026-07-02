@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, X, Check, Users, ChevronRight,
   UserCheck, ArrowLeft, Search, CheckSquare, Square, MinusSquare,
-  Layers, UsersRound, Pencil, AlertTriangle, UserPlus
+  Layers, UsersRound, Pencil, AlertTriangle, UserPlus,
+  RefreshCw, Copy, Eye, EyeOff, KeyRound, CheckCircle2,
 } from 'lucide-react';
 import { loadMasterSubjects, type MasterSubject } from './PrincipalSubjects';
 import {
@@ -15,6 +16,7 @@ import {
   getTeachers,
 } from '../../../utils/studentData';
 import { readDatabase, writeDatabase } from '../../../utils/database';
+import { createAccount, updateAccountProfile, resetAccountPassword } from '../../../utils/apiClient';
 import { Pagination } from '../registrar/shared';
 
 /* ═══════════════════ Types ═══════════════════ */
@@ -28,9 +30,86 @@ interface TeacherRecord {
   displayName: string;
   department: string;
   subjects: AssignedSubject[];
+  uid?: string; // present for teachers with a real login account
 }
 
 type AddMode = 'section' | 'individual';
+
+/* ═══════════════════ Credential generation ═══════════════════ */
+const DEPARTMENTS = ['Kindergarten', 'Elementary', 'JHS'];
+
+const TITLE_PREFIXES = new Set(['prof', 'mr', 'mrs', 'ms', 'dr', 'sr', 'fr', 'engr', 'atty']);
+const slugifyNamePart = (value: string) => value.toLowerCase().replace(/[^a-z]/g, '');
+
+function suggestTeacherUsername(displayName: string, taken: Set<string>): string {
+  const words = displayName
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word && !TITLE_PREFIXES.has(word.toLowerCase().replace(/\.+$/, '')));
+  const first = words[0] || 'teacher';
+  const last = words[words.length - 1] || first;
+  const base = slugifyNamePart(`${first[0] || ''}${last}`) || 'teacher';
+  let candidate = base;
+  let suffix = 1;
+  while (taken.has(candidate)) {
+    suffix += 1;
+    candidate = `${base}${suffix}`;
+  }
+  return candidate;
+}
+
+const PASSWORD_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+function generateTeacherPassword(length = 10): string {
+  const values = new Uint32Array(length);
+  crypto.getRandomValues(values);
+  return Array.from(values, (v) => PASSWORD_CHARS[v % PASSWORD_CHARS.length]).join('');
+}
+
+/* ═══════════════════ Credential field (shared by add + reset password) ═══════════════════ */
+const CredentialField: React.FC<{
+  label: string;
+  value: string;
+  onChange?: (value: string) => void;
+  onRegenerate: () => void;
+  maskable?: boolean;
+  reveal?: boolean;
+  onToggleReveal?: () => void;
+}> = ({ label, value, onChange, onRegenerate, maskable = false, reveal = true, onToggleReveal }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+  return (
+    <div>
+      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">{label}</label>
+      <div className="flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <input
+            value={value}
+            onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+            type={maskable && !reveal ? 'password' : 'text'}
+            className={`w-full h-9 px-3 ${maskable ? 'pr-9' : ''} border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all font-mono`}
+          />
+          {maskable && (
+            <button type="button" onClick={onToggleReveal} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              {reveal ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
+          )}
+        </div>
+        <button type="button" onClick={copy} title="Copy" className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors">
+          {copied ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+        </button>
+        <button type="button" onClick={onRegenerate} title="Generate new" className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors">
+          <RefreshCw size={13} />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 /* ═══════════════════ Build default teachers from the cloud roster ═══════════════════ */
 function buildDefaultTeachers(): TeacherRecord[] {
@@ -97,8 +176,18 @@ export const PrincipalTeachers: React.FC = () => {
   const [showAddTeacher, setShowAddTeacher] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<TeacherRecord | null>(null);
   const [confirmDeleteTeacher, setConfirmDeleteTeacher] = useState<TeacherRecord | null>(null);
-  const [teacherForm, setTeacherForm] = useState({ displayName: '', username: '', department: '' });
+  const [teacherForm, setTeacherForm] = useState({ displayName: '', username: '', department: '', password: '' });
   const [teacherFormError, setTeacherFormError] = useState('');
+  const [usernameEdited, setUsernameEdited] = useState(false);
+  const [isSavingTeacher, setIsSavingTeacher] = useState(false);
+  const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string; displayName: string } | null>(null);
+  const [revealPassword, setRevealPassword] = useState(false);
+
+  // Password reset (edit teacher)
+  const [resetPassword, setResetPassword] = useState('');
+  const [revealResetPassword, setRevealResetPassword] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [passwordResetDone, setPasswordResetDone] = useState(false);
 
   // Add subject modal
   const [showAddSubject, setShowAddSubject] = useState(false);
@@ -162,46 +251,118 @@ export const PrincipalTeachers: React.FC = () => {
   const save = (data: TeacherRecord[]) => { setTeachers(data); writeDatabase('teacher_records', { teachers: data }); };
 
   /* ── Teacher CRUD ── */
+  const takenUsernames = () => new Set(teachers.map(t => t.username));
+
   const openAddTeacher = () => {
-    setTeacherForm({ displayName: '', username: '', department: '' });
+    setTeacherForm({ displayName: '', username: '', department: '', password: generateTeacherPassword() });
+    setUsernameEdited(false);
     setTeacherFormError('');
+    setCreatedCredentials(null);
+    setRevealPassword(false);
     setShowAddTeacher(true);
+  };
+
+  const closeAddTeacher = () => {
+    setShowAddTeacher(false);
+    setCreatedCredentials(null);
   };
 
   const openEditTeacher = (t: TeacherRecord, e: React.MouseEvent) => {
     e.stopPropagation();
-    setTeacherForm({ displayName: t.displayName, username: t.username, department: t.department });
+    setTeacherForm({ displayName: t.displayName, username: t.username, department: t.department, password: '' });
     setTeacherFormError('');
+    setResetPassword(generateTeacherPassword());
+    setRevealResetPassword(false);
+    setPasswordResetDone(false);
     setEditingTeacher(t);
   };
 
-  const handleAddTeacher = () => {
-    const { displayName, username, department } = teacherForm;
-    if (!displayName.trim() || !username.trim() || !department.trim()) {
+  const closeEditTeacher = () => {
+    setEditingTeacher(null);
+    setPasswordResetDone(false);
+    setTeacherFormError('');
+  };
+
+  const handleAddTeacher = async () => {
+    if (isSavingTeacher) return;
+    const { displayName, department, password } = teacherForm;
+    const username = (teacherForm.username.trim() || suggestTeacherUsername(displayName, takenUsernames())).toLowerCase();
+    if (!displayName.trim() || !username || !department.trim() || !password.trim()) {
       setTeacherFormError('All fields are required.');
       return;
     }
-    const slug = username.trim().toLowerCase().replace(/\s+/g, '');
-    if (teachers.find(t => t.username === slug)) {
+    if (password.trim().length < 6) {
+      setTeacherFormError('Password must be at least 6 characters.');
+      return;
+    }
+    if (takenUsernames().has(username)) {
       setTeacherFormError('Username already exists. Choose a different one.');
       return;
     }
-    save([...teachers, { username: slug, displayName: displayName.trim(), department: department.trim(), subjects: [] }]);
-    setShowAddTeacher(false);
+    setIsSavingTeacher(true);
+    setTeacherFormError('');
+    try {
+      const res = await createAccount({
+        role: 'teacher',
+        username,
+        password,
+        firstName: displayName.trim(),
+        department,
+      });
+      const account = res.user;
+      save([...teachers, {
+        username: account.username,
+        displayName: displayName.trim(),
+        department: department.trim(),
+        subjects: [],
+        uid: account.uid,
+      }]);
+      setCreatedCredentials({ username: account.username, password, displayName: displayName.trim() });
+    } catch (err: any) {
+      setTeacherFormError(err?.message || 'Failed to create teacher account.');
+    } finally {
+      setIsSavingTeacher(false);
+    }
   };
 
-  const handleEditTeacher = () => {
-    if (!editingTeacher) return;
+  const handleEditTeacher = async () => {
+    if (!editingTeacher || isSavingTeacher) return;
     const { displayName, department } = teacherForm;
     if (!displayName.trim() || !department.trim()) {
       setTeacherFormError('All fields are required.');
       return;
     }
-    save(teachers.map(t => t.username !== editingTeacher.username ? t : { ...t, displayName: displayName.trim(), department: department.trim() }));
-    if (selectedTeacher === editingTeacher.username) {
-      // refresh displayed teacher name
+    setIsSavingTeacher(true);
+    setTeacherFormError('');
+    try {
+      if (editingTeacher.uid) {
+        await updateAccountProfile(editingTeacher.uid, { firstName: displayName.trim(), department: department.trim() });
+      }
+      save(teachers.map(t => t.username !== editingTeacher.username ? t : { ...t, displayName: displayName.trim(), department: department.trim() }));
+      closeEditTeacher();
+    } catch (err: any) {
+      setTeacherFormError(err?.message || 'Failed to update teacher.');
+    } finally {
+      setIsSavingTeacher(false);
     }
-    setEditingTeacher(null);
+  };
+
+  const handleResetPassword = async () => {
+    if (!editingTeacher?.uid || isResettingPassword) return;
+    if (resetPassword.trim().length < 6) {
+      setTeacherFormError('Password must be at least 6 characters.');
+      return;
+    }
+    setIsResettingPassword(true);
+    setTeacherFormError('');
+    try {
+      await resetAccountPassword(editingTeacher.uid, resetPassword.trim());
+      setPasswordResetDone(true);
+    } catch (err: any) {
+      setTeacherFormError(err?.message || 'Failed to reset password.');
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   const handleDeleteTeacher = () => {
@@ -372,64 +533,102 @@ export const PrincipalTeachers: React.FC = () => {
         />
 
         {/* ═══════════ ADD TEACHER MODAL ═══════════ */}
-        <Modal open={showAddTeacher} onClose={() => setShowAddTeacher(false)}>
+        <Modal open={showAddTeacher} onClose={closeAddTeacher}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-            <h4 className="text-sm font-bold text-gray-800">Add New Teacher</h4>
-            <button onClick={() => setShowAddTeacher(false)} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
+            <h4 className="text-sm font-bold text-gray-800">{createdCredentials ? 'Teacher Account Created' : 'Add New Teacher'}</h4>
+            <button onClick={closeAddTeacher} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
           </div>
-          <div className="p-5 space-y-4">
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Display Name <span className="text-red-400">*</span></label>
-              <input
-                value={teacherForm.displayName}
-                onChange={e => setTeacherForm(f => ({ ...f, displayName: e.target.value }))}
-                placeholder="e.g. Prof. Santos"
-                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Username <span className="text-red-400">*</span></label>
-              <input
-                value={teacherForm.username}
-                onChange={e => setTeacherForm(f => ({ ...f, username: e.target.value }))}
-                placeholder="e.g. msantos"
-                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all font-mono"
-              />
-              <p className="text-[10px] text-gray-400 mt-1">Used for login. Lowercase letters and numbers only.</p>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Department <span className="text-red-400">*</span></label>
-              <input
-                list="dept-suggestions"
-                value={teacherForm.department}
-                onChange={e => setTeacherForm(f => ({ ...f, department: e.target.value }))}
-                placeholder="e.g. Mathematics"
-                className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
-              />
-              <datalist id="dept-suggestions">
-                {['Mathematics', 'Science', 'English', 'Filipino', 'Araling Panlipunan', 'ESP', 'MAPEH', 'TLE', 'ICT'].map(d => (
-                  <option key={d} value={d} />
-                ))}
-              </datalist>
-            </div>
-            {teacherFormError && (
-              <p className="text-[11px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} /> {teacherFormError}</p>
-            )}
-          </div>
-          <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
-            <button onClick={() => setShowAddTeacher(false)} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
-            <button onClick={handleAddTeacher}
-              className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex items-center gap-1.5">
-              <UserPlus size={13} /> Add Teacher
-            </button>
-          </div>
+          {createdCredentials ? (
+            <>
+              <div className="p-5 space-y-4">
+                <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-100 rounded p-3">
+                  <CheckCircle2 size={16} className="flex-shrink-0" />
+                  <p className="text-xs font-bold">{createdCredentials.displayName}'s login account is ready.</p>
+                </div>
+                <p className="text-[11px] text-gray-500">Share these credentials with the teacher. The password won't be shown again — reset it anytime from Edit Teacher.</p>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Username</label>
+                  <div className="h-9 px-3 border border-gray-100 rounded text-xs bg-gray-50 flex items-center font-mono text-gray-700">{createdCredentials.username}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Password</label>
+                  <div className="h-9 px-3 border border-gray-100 rounded text-xs bg-gray-50 flex items-center font-mono text-gray-700">{createdCredentials.password}</div>
+                </div>
+              </div>
+              <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+                <button onClick={closeAddTeacher}
+                  className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex items-center gap-1.5">
+                  <Check size={13} /> Done
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Display Name <span className="text-red-400">*</span></label>
+                  <input
+                    value={teacherForm.displayName}
+                    onChange={e => {
+                      const displayName = e.target.value;
+                      setTeacherForm(f => ({
+                        ...f,
+                        displayName,
+                        username: usernameEdited ? f.username : suggestTeacherUsername(displayName, takenUsernames()),
+                      }));
+                    }}
+                    placeholder="e.g. Prof. Santos"
+                    className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Department <span className="text-red-400">*</span></label>
+                  <select
+                    value={teacherForm.department}
+                    onChange={e => setTeacherForm(f => ({ ...f, department: e.target.value }))}
+                    className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
+                  >
+                    <option value="">Select department...</option>
+                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <CredentialField
+                  label="Username"
+                  value={teacherForm.username}
+                  onChange={(value) => { setUsernameEdited(true); setTeacherForm(f => ({ ...f, username: value })); }}
+                  onRegenerate={() => { setUsernameEdited(true); setTeacherForm(f => ({ ...f, username: suggestTeacherUsername(f.displayName, takenUsernames()) })); }}
+                />
+                <p className="text-[10px] text-gray-400 -mt-3">Auto-generated from the display name. Used for login — you can edit it.</p>
+                <CredentialField
+                  label="Password"
+                  value={teacherForm.password}
+                  onChange={(value) => setTeacherForm(f => ({ ...f, password: value }))}
+                  onRegenerate={() => setTeacherForm(f => ({ ...f, password: generateTeacherPassword() }))}
+                  maskable
+                  reveal={revealPassword}
+                  onToggleReveal={() => setRevealPassword(v => !v)}
+                />
+                <p className="text-[10px] text-gray-400 -mt-3">Auto-generated. Share it with the teacher after creating the account, or edit it here.</p>
+                {teacherFormError && (
+                  <p className="text-[11px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} /> {teacherFormError}</p>
+                )}
+              </div>
+              <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+                <button onClick={closeAddTeacher} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+                <button onClick={handleAddTeacher} disabled={isSavingTeacher}
+                  className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] disabled:opacity-50 transition-colors flex items-center gap-1.5">
+                  <UserPlus size={13} /> {isSavingTeacher ? 'Creating...' : 'Add Teacher'}
+                </button>
+              </div>
+            </>
+          )}
         </Modal>
 
         {/* ═══════════ EDIT TEACHER MODAL ═══════════ */}
-        <Modal open={!!editingTeacher} onClose={() => setEditingTeacher(null)}>
+        <Modal open={!!editingTeacher} onClose={closeEditTeacher}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
             <h4 className="text-sm font-bold text-gray-800">Edit Teacher</h4>
-            <button onClick={() => setEditingTeacher(null)} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
+            <button onClick={closeEditTeacher} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
           </div>
           <div className="p-5 space-y-4">
             <div>
@@ -447,27 +646,49 @@ export const PrincipalTeachers: React.FC = () => {
             </div>
             <div>
               <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Department <span className="text-red-400">*</span></label>
-              <input
-                list="dept-suggestions-edit"
+              <select
                 value={teacherForm.department}
                 onChange={e => setTeacherForm(f => ({ ...f, department: e.target.value }))}
                 className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
-              />
-              <datalist id="dept-suggestions-edit">
-                {['Mathematics', 'Science', 'English', 'Filipino', 'Araling Panlipunan', 'ESP', 'MAPEH', 'TLE', 'ICT'].map(d => (
-                  <option key={d} value={d} />
-                ))}
-              </datalist>
+              >
+                <option value="">Select department...</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
+            {editingTeacher?.uid ? (
+              <div className="border-t border-gray-100 pt-4 space-y-2">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5"><KeyRound size={12} /> Reset Password</p>
+                <CredentialField
+                  label="New Password"
+                  value={resetPassword}
+                  onChange={(value) => { setResetPassword(value); setPasswordResetDone(false); }}
+                  onRegenerate={() => { setResetPassword(generateTeacherPassword()); setPasswordResetDone(false); }}
+                  maskable
+                  reveal={revealResetPassword}
+                  onToggleReveal={() => setRevealResetPassword(v => !v)}
+                />
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={handleResetPassword} disabled={isResettingPassword}
+                    className="h-8 px-3 bg-gray-800 text-white rounded text-[11px] font-bold hover:bg-gray-900 disabled:opacity-50 transition-colors">
+                    {isResettingPassword ? 'Saving...' : 'Update Password'}
+                  </button>
+                  {passwordResetDone && (
+                    <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1"><Check size={12} /> Password updated</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-3">This teacher isn't linked to a login account yet.</p>
+            )}
             {teacherFormError && (
               <p className="text-[11px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} /> {teacherFormError}</p>
             )}
           </div>
           <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
-            <button onClick={() => setEditingTeacher(null)} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
-            <button onClick={handleEditTeacher}
-              className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex items-center gap-1.5">
-              <Check size={13} /> Save Changes
+            <button onClick={closeEditTeacher} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+            <button onClick={handleEditTeacher} disabled={isSavingTeacher}
+              className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] disabled:opacity-50 transition-colors flex items-center gap-1.5">
+              <Check size={13} /> {isSavingTeacher ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </Modal>
@@ -999,10 +1220,10 @@ export const PrincipalTeachers: React.FC = () => {
       </Modal>
 
       {/* ═══════════ EDIT TEACHER MODAL (profile view) ═══════════ */}
-      <Modal open={!!editingTeacher} onClose={() => setEditingTeacher(null)}>
+      <Modal open={!!editingTeacher} onClose={closeEditTeacher}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <h4 className="text-sm font-bold text-gray-800">Edit Teacher</h4>
-          <button onClick={() => setEditingTeacher(null)} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
+          <button onClick={closeEditTeacher} className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-4">
           <div>
@@ -1020,27 +1241,48 @@ export const PrincipalTeachers: React.FC = () => {
           </div>
           <div>
             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Department <span className="text-red-400">*</span></label>
-            <input
-              list="dept-suggestions-profile"
+            <select
               value={teacherForm.department}
               onChange={e => setTeacherForm(f => ({ ...f, department: e.target.value }))}
               className="w-full h-9 px-3 border border-gray-200 rounded text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#185C20]/15 focus:border-[#185C20]/40 transition-all"
-            />
-            <datalist id="dept-suggestions-profile">
-              {['Mathematics', 'Science', 'English', 'Filipino', 'Araling Panlipunan', 'ESP', 'MAPEH', 'TLE', 'ICT'].map(d => (
-                <option key={d} value={d} />
-              ))}
-            </datalist>
+            >
+              <option value="">Select department...</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
           </div>
+          {editingTeacher?.uid ? (
+            <div className="border-t border-gray-100 pt-4 space-y-2">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5"><KeyRound size={12} /> Reset Password</p>
+              <CredentialField
+                label="New Password"
+                value={resetPassword}
+                onChange={setResetPassword}
+                onRegenerate={() => { setResetPassword(generateTeacherPassword()); setPasswordResetDone(false); }}
+                reveal={revealResetPassword}
+                onToggleReveal={() => setRevealResetPassword(v => !v)}
+              />
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={handleResetPassword} disabled={isResettingPassword}
+                  className="h-8 px-3 bg-gray-800 text-white rounded text-[11px] font-bold hover:bg-gray-900 disabled:opacity-50 transition-colors">
+                  {isResettingPassword ? 'Saving...' : 'Update Password'}
+                </button>
+                {passwordResetDone && (
+                  <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1"><Check size={12} /> Password updated</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-3">This teacher isn't linked to a login account yet.</p>
+          )}
           {teacherFormError && (
             <p className="text-[11px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} /> {teacherFormError}</p>
           )}
         </div>
         <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
-          <button onClick={() => setEditingTeacher(null)} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
-          <button onClick={handleEditTeacher}
-            className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] transition-colors flex items-center gap-1.5">
-            <Check size={13} /> Save Changes
+          <button onClick={closeEditTeacher} className="h-9 px-4 bg-gray-100 text-gray-500 rounded text-xs font-bold hover:bg-gray-200">Cancel</button>
+          <button onClick={handleEditTeacher} disabled={isSavingTeacher}
+            className="h-9 px-5 bg-[#185C20] text-white rounded text-xs font-bold hover:bg-[#1a6925] disabled:opacity-50 transition-colors flex items-center gap-1.5">
+            <Check size={13} /> {isSavingTeacher ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </Modal>

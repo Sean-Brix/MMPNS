@@ -52,6 +52,20 @@ router.get("/", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
   }
 });
 
+// GET /api/accounts/me — the caller's own account (any authenticated role)
+router.get("/me", requireAuth(), async (req, res, next) => {
+  try {
+    const user = await getUserByUid(req.auth.uid);
+    if (!user) {
+      const {notFound} = require("../httpError");
+      throw notFound("Account not found.");
+    }
+    res.json({user: stripSensitiveFields(user)});
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /api/accounts — create a new account
 router.post("/", requireAuth(ACCOUNT_MANAGER_ROLES), async (req, res, next) => {
   try {

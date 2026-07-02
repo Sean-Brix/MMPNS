@@ -1,6 +1,7 @@
 import {
   AlignmentType,
   Document,
+  HeightRule,
   ImageRun,
   Packer,
   Paragraph,
@@ -9,6 +10,7 @@ import {
   TableLayoutType,
   TableRow,
   TextRun,
+  VerticalAlign,
   WidthType,
 } from 'docx';
 import QRCode from 'qrcode';
@@ -26,6 +28,7 @@ export interface StudentCodeRecord {
   lrn?: string;
   emergencyContactName?: string;
   emergencyContactNumber?: string;
+  photoUrl?: string;
 }
 
 export interface StudentCodeDocumentOptions {
@@ -41,9 +44,75 @@ const PAGE_MARGIN_DXA = 504;
 const TABLE_WIDTH_DXA = PAGE_WIDTH_DXA - (PAGE_MARGIN_DXA * 2) - 240;
 const LABEL_WIDTH_DXA = TABLE_WIDTH_DXA / 2;
 const LABELS_PER_PAGE = 20;
+const ROWS_PER_PAGE = LABELS_PER_PAGE / 2;
+const HEADER_ALLOWANCE_DXA = 400;
+// Stretch every row so the full grid always fills the printable page height,
+// instead of Word shrinking the table to its content and leaving blank paper below it.
+const ROW_HEIGHT_DXA = Math.floor(
+  (PAGE_HEIGHT_DXA - (PAGE_MARGIN_DXA * 2) - HEADER_ALLOWANCE_DXA) / ROWS_PER_PAGE,
+);
+const PHOTO_CELL_WIDTH_DXA = 1450;
+const PHOTO_IMAGE_PX = 88;
 
 const dataUrlToBytes = async (dataUrl: string) =>
   new Uint8Array(await (await fetch(dataUrl)).arrayBuffer());
+
+const fetchStudentPhotoBytes = async (photoUrl: string, label: string): Promise<Uint8Array | null> => {
+  const warn = (reason: string) => console.warn(`[ID export] Could not embed photo for ${label}: ${reason}`, photoUrl);
+
+  let response: Response;
+  try {
+    // Firebase Storage sends Access-Control-Allow-Origin on a fresh 200, but
+    // browsers that already cached this URL (e.g. from the <img> thumbnail
+    // elsewhere in the UI) send a conditional request and get back a 304
+    // that omits the CORS header, which fetch() then rejects. Force a full
+    // network fetch so we always get the header-bearing 200 response.
+    response = await fetch(photoUrl, { mode: 'cors', cache: 'no-store' });
+  } catch (error) {
+    warn(`network/CORS error — ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+  if (!response.ok) {
+    warn(`HTTP ${response.status} ${response.statusText}`);
+    return null;
+  }
+
+  const blob = await response.blob();
+  if (typeof createImageBitmap !== 'function') {
+    warn('createImageBitmap is not supported in this browser');
+    return null;
+  }
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch (error) {
+    warn(`could not decode image (type: ${blob.type || 'unknown'}) — ${error instanceof Error ? error.message : String(error)}. HEIC/HEIF photos from iPhones are a common cause; re-save as JPG or PNG.`);
+    return null;
+  }
+
+  const size = 240;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    warn('canvas 2D context unavailable');
+    return null;
+  }
+
+  const scale = Math.max(size / bitmap.width, size / bitmap.height);
+  const drawWidth = bitmap.width * scale;
+  const drawHeight = bitmap.height * scale;
+  ctx.drawImage(bitmap, (size - drawWidth) / 2, (size - drawHeight) / 2, drawWidth, drawHeight);
+
+  try {
+    return await dataUrlToBytes(canvas.toDataURL('image/png'));
+  } catch (error) {
+    warn(`could not export canvas — ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+};
 
 const createCodeImage = async (student: StudentCodeRecord, codeType: StudentCodeType) => {
   if (!student.systemId) {
@@ -74,33 +143,81 @@ const createCodeImage = async (student: StudentCodeRecord, codeType: StudentCode
   return dataUrlToBytes(canvas.toDataURL('image/png'));
 };
 
+const labelColumnWidths = (codeType: StudentCodeType, includePhotos: boolean) => {
+  const codeCellWidth = codeType === 'qr' ? 1500 : 2300;
+  const detailCellWidth = LABEL_WIDTH_DXA - codeCellWidth - (includePhotos ? PHOTO_CELL_WIDTH_DXA : 0);
+  return includePhotos
+    ? [PHOTO_CELL_WIDTH_DXA, codeCellWidth, detailCellWidth]
+    : [codeCellWidth, detailCellWidth];
+};
+
 const createLabelCells = async (
   student: StudentCodeRecord | undefined,
   codeType: StudentCodeType,
+  includePhotos: boolean,
 ) => {
-  const codeCellWidth = codeType === 'qr' ? 1500 : 2300;
-  const detailCellWidth = LABEL_WIDTH_DXA - codeCellWidth;
+  const columnWidths = labelColumnWidths(codeType, includePhotos);
+  const codeCellWidth = columnWidths[columnWidths.length - 2];
+  const detailCellWidth = columnWidths[columnWidths.length - 1];
+
+  const photoCell = includePhotos
+    ? new TableCell({
+      width: { size: PHOTO_CELL_WIDTH_DXA, type: WidthType.DXA },
+      verticalAlign: VerticalAlign.CENTER,
+      children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [] })],
+    })
+    : null;
 
   if (!student) {
     return [
+      ...(photoCell ? [photoCell] : []),
       new TableCell({
         width: { size: codeCellWidth, type: WidthType.DXA },
+        verticalAlign: VerticalAlign.CENTER,
         children: [new Paragraph('')],
       }),
       new TableCell({
         width: { size: detailCellWidth, type: WidthType.DXA },
+        verticalAlign: VerticalAlign.CENTER,
         children: [new Paragraph('')],
       }),
     ];
   }
 
-  const image = await createCodeImage(student, codeType);
+  const [image, photoBytes] = await Promise.all([
+    createCodeImage(student, codeType),
+    includePhotos && student.photoUrl ? fetchStudentPhotoBytes(student.photoUrl, student.displayName) : Promise.resolve(null),
+  ]);
   const imageWidth = codeType === 'qr' ? 86 : 142;
   const imageHeight = codeType === 'qr' ? 86 : 50;
 
+  const studentPhotoCell = includePhotos
+    ? new TableCell({
+      width: { size: PHOTO_CELL_WIDTH_DXA, type: WidthType.DXA },
+      verticalAlign: VerticalAlign.CENTER,
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+          children: photoBytes
+            ? [
+              new ImageRun({
+                type: 'png',
+                data: photoBytes,
+                transformation: { width: PHOTO_IMAGE_PX, height: PHOTO_IMAGE_PX },
+              }),
+            ]
+            : [],
+        }),
+      ],
+    })
+    : null;
+
   return [
+    ...(studentPhotoCell ? [studentPhotoCell] : []),
     new TableCell({
       width: { size: codeCellWidth, type: WidthType.DXA },
+      verticalAlign: VerticalAlign.CENTER,
       children: [
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -117,6 +234,7 @@ const createLabelCells = async (
     }),
     new TableCell({
       width: { size: detailCellWidth, type: WidthType.DXA },
+      verticalAlign: VerticalAlign.CENTER,
       children: [
         new Paragraph({
           spacing: { before: 0, after: 35 },
@@ -194,13 +312,15 @@ export const buildStudentCodeDocument = async (options: StudentCodeDocumentOptio
     throw new Error('No students with system IDs match the selected filters.');
   }
 
+  const includePhotos = students.some((student) => student.photoUrl);
   const pageChunks = chunkStudents(students);
   const sections = await Promise.all(pageChunks.map(async (pageStudents) => {
     const rows: TableRow[] = [];
-    for (let index = 0; index < pageStudents.length; index += 2) {
-      const leftCells = await createLabelCells(pageStudents[index], options.codeType);
-      const rightCells = await createLabelCells(pageStudents[index + 1], options.codeType);
+    for (let row = 0; row < ROWS_PER_PAGE; row += 1) {
+      const leftCells = await createLabelCells(pageStudents[row * 2], options.codeType, includePhotos);
+      const rightCells = await createLabelCells(pageStudents[row * 2 + 1], options.codeType, includePhotos);
       rows.push(new TableRow({
+        height: { value: ROW_HEIGHT_DXA, rule: HeightRule.ATLEAST },
         children: [...leftCells, ...rightCells],
       }));
     }
@@ -240,9 +360,10 @@ export const buildStudentCodeDocument = async (options: StudentCodeDocumentOptio
         new Table({
           width: { size: TABLE_WIDTH_DXA, type: WidthType.DXA },
           layout: TableLayoutType.FIXED,
-          columnWidths: options.codeType === 'qr'
-            ? [1500, LABEL_WIDTH_DXA - 1500, 1500, LABEL_WIDTH_DXA - 1500]
-            : [2300, LABEL_WIDTH_DXA - 2300, 2300, LABEL_WIDTH_DXA - 2300],
+          columnWidths: [
+            ...labelColumnWidths(options.codeType, includePhotos),
+            ...labelColumnWidths(options.codeType, includePhotos),
+          ],
           rows,
         }),
       ],

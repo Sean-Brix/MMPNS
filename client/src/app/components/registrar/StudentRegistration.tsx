@@ -896,7 +896,6 @@ export const StudentRegistration: React.FC = () => {
       <ExportIdCodesModal
         open={showExportModal}
         onClose={() => setShowExportModal(false)}
-        students={students}
       />
 
       {/* Bulk edit modal */}

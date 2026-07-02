@@ -76,6 +76,8 @@ const toQueryString = (params: Record<string, unknown>) => {
 export const getAccounts = (params: AccountListParams = {}) =>
   apiFetch<AccountListResponse>(`/accounts${toQueryString(params)}`);
 
+export const getMyAccount = () => apiFetch<{ user: any }>('/accounts/me');
+
 export const createAccount = (data: Record<string, any>) =>
   apiFetch<{ success: boolean; user: any }>('/accounts', {
     method: 'POST',
