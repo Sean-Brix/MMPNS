@@ -25,20 +25,52 @@ const withAuthHeader = async (headers?: HeadersInit): Promise<Headers> => {
   return nextHeaders;
 };
 
+// Error bodies aren't always JSON (e.g. Cloud Run's plain-text 429 "Rate exceeded.").
+const parseBody = (text: string): any => {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
 const readResponse = async <T>(response: Response): Promise<T> => {
   const text = await response.text();
-  const parsed = text ? JSON.parse(text) : null;
+  const parsed = parseBody(text);
 
   if (!response.ok) {
-    throw new ApiError(response.status, parsed?.error || response.statusText || 'API request failed');
+    const message = parsed?.error || (parsed === undefined ? text.trim() : '') || response.statusText || 'API request failed';
+    throw new ApiError(response.status, message);
+  }
+
+  if (parsed === undefined) {
+    throw new ApiError(response.status, 'Invalid JSON response from API');
   }
 
   return parsed as T;
 };
 
+const RETRY_DELAYS_MS = [500, 1500];
+
+const retryDelay = (response: Response, attempt: number) => {
+  const retryAfter = Number(response.headers.get('Retry-After'));
+  return Number.isFinite(retryAfter) && retryAfter > 0
+    ? Math.min(retryAfter * 1000, 5000)
+    : RETRY_DELAYS_MS[attempt];
+};
+
 export const apiFetch = async <T>(path: string, init: RequestInit = {}) => {
   const headers = await withAuthHeader(init.headers);
-  const response = await fetch(apiUrl(path), { ...init, headers });
+  const method = (init.method || 'GET').toUpperCase();
+  // Only idempotent reads are retried; retrying a POST could double-record a scan.
+  const canRetry = method === 'GET' || method === 'HEAD';
+
+  let response = await fetch(apiUrl(path), { ...init, headers });
+  for (let attempt = 0; canRetry && response.status === 429 && attempt < RETRY_DELAYS_MS.length; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, retryDelay(response, attempt)));
+    response = await fetch(apiUrl(path), { ...init, headers });
+  }
   return readResponse<T>(response);
 };
 

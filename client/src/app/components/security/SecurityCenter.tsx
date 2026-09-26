@@ -177,12 +177,24 @@ export const SecurityCenter: React.FC<SecurityCenterProps> = ({ section = 'analy
         setSyncStatus(await getLocalSyncStatus());
       } catch { /* ignore */ }
     }
+    return online;
   }, []);
 
+  // Poll often while the local server is up; back off when it isn't running
+  // so devices without one don't log a refused connection every few seconds.
   useEffect(() => {
-    void loadSyncStatus();
-    const id = window.setInterval(() => void loadSyncStatus(), 5000);
-    return () => window.clearInterval(id);
+    let cancelled = false;
+    let timeoutId: number | undefined;
+    const poll = async () => {
+      const online = await loadSyncStatus();
+      if (cancelled) return;
+      timeoutId = window.setTimeout(() => void poll(), online ? 5000 : 60000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
   }, [loadSyncStatus]);
 
   useEffect(() => {
