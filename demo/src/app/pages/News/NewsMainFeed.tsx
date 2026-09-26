@@ -1,0 +1,607 @@
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Calendar, Quote, ArrowRight, ExternalLink, X, ThumbsUp, MessageSquare, Send, Share2, Facebook, Loader2, ChevronDown, ChevronLeft, ChevronRight, Play, Image as ImageIcon } from 'lucide-react';
+import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
+import { Skeleton } from '../../components/ui/skeleton';
+import { NewsFilters } from './NewsSidebar';
+import type { NewsItemForStats } from './NewsSidebar';
+import { DEMO_NEWS_POSTS } from '../../../demo/demoData';
+
+interface MediaItem {
+  type: 'photo' | 'video';
+  src: string; // image src or video poster
+  videoSrc?: string; // video source URL
+}
+
+interface NewsItem {
+  id: string;
+  title: string;
+  category: 'Announcement' | 'Event' | 'Activity';
+  date: string;
+  excerpt: string;
+  image: string; // thumbnail for the feed card
+  media: MediaItem[]; // all media for the slider
+  likes: string;
+  commentsCount: string;
+  url?: string;
+}
+
+interface CachedPage {
+  items: NewsItem[];
+  nextUrl: string | null;
+  timestamp: number;
+}
+
+interface PaginationCache {
+  pages: CachedPage[];
+  timestamp: number;
+}
+
+const POSTS_PER_PAGE = 3;
+
+// Demo build: the gazette serves the fixed posts below instead of syncing
+// with the Facebook Graph API. Pagination, filters, and the media viewer all
+// behave exactly like the production feed.
+const DEMO_GAZETTE_PAGES: CachedPage[] = (() => {
+  const pages: CachedPage[] = [];
+  for (let start = 0; start < DEMO_NEWS_POSTS.length; start += POSTS_PER_PAGE) {
+    pages.push({
+      items: DEMO_NEWS_POSTS.slice(start, start + POSTS_PER_PAGE) as NewsItem[],
+      nextUrl: null,
+      timestamp: Date.now(),
+    });
+  }
+  return pages;
+})();
+
+// Normalize a news item to ensure media field always exists (handles stale cache)
+const normalizeNewsItem = (item: any): NewsItem => {
+  const media: MediaItem[] = Array.isArray(item.media) && item.media.length > 0
+    ? item.media
+    : [{ type: 'photo' as const, src: item.image || '' }];
+  return { ...item, media };
+};
+
+// Helper to check date against filter range
+const isInDateRange = (dateStr: string, range: NewsFilters['dateRange']): boolean => {
+  if (range === 'all') return true;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return true; // keep items with unparseable dates
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  switch (range) {
+    case 'today': return d >= startOfToday;
+    case 'week': {
+      const startOfWeek = new Date(startOfToday);
+      startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+      return d >= startOfWeek;
+    }
+    case 'month': return d >= new Date(now.getFullYear(), now.getMonth(), 1);
+    case 'year': return d >= new Date(now.getFullYear(), 0, 1);
+    default: return true;
+  }
+};
+
+// Helper to check media type against filter
+const matchesMediaType = (media: MediaItem[], filterType: NewsFilters['mediaType']): boolean => {
+  if (filterType === 'all') return true;
+  if (filterType === 'album') return (media?.length ?? 0) > 1;
+  if (filterType === 'video') return media?.some(m => m.type === 'video') && (media?.length ?? 0) <= 1;
+  if (filterType === 'photo') return media?.every(m => m.type === 'photo') && (media?.length ?? 0) <= 1;
+  return true;
+};
+
+// Helper to check message content against filter
+const matchesMessageFilter = (excerpt: string, filter: NewsFilters['hasMessage']): boolean => {
+  if (filter === 'all') return true;
+  const hasText = excerpt && excerpt !== 'No content available.' && excerpt.trim().length > 0;
+  return filter === 'with-text' ? hasText : !hasText;
+};
+
+interface NewsMainFeedProps {
+  filters: NewsFilters;
+  onAllItemsChange: (items: NewsItemForStats[]) => void;
+  onFilteredCountChange: (count: number) => void;
+}
+
+const NewsFeedSkeleton: React.FC = () => {
+  return (
+    <div className="lg:w-2/3 space-y-10" aria-busy="true" aria-label="Loading news feed">
+      <div className="space-y-3 border-b-4 border-[#185C20] pb-4">
+        <Skeleton className="h-10 w-[min(90%,520px)]" />
+        <Skeleton className="h-3 w-full max-w-[460px]" />
+      </div>
+
+      <div className="space-y-16">
+        {[0, 1, 2].map((item) => (
+          <div key={item} className="flex flex-col gap-8 md:flex-row">
+            <Skeleton className="aspect-[4/3] w-full rounded-sm md:w-1/2" />
+            <div className="space-y-4 md:w-1/2">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-11/12" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-10/12" />
+              <Skeleton className="h-4 w-9/12" />
+              <Skeleton className="h-4 w-44" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const NewsMainFeed: React.FC<NewsMainFeedProps> = ({ filters, onAllItemsChange, onFilteredCountChange }) => {
+  const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
+  const [mediaIndex, setMediaIndex] = useState(0);
+  const [pages, setPages] = useState<CachedPage[]>([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore] = useState(false);
+  const [error] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const feedTopRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Pause active video when sliding away or closing modal
+  const pauseActiveVideo = useCallback(() => {
+    try {
+      videoRef.current?.pause();
+    } catch {}
+  }, []);
+
+  // Initial load: serve the fixed demo posts with a brief skeleton pass.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPages(DEMO_GAZETTE_PAGES);
+      setHasMore(false);
+      setLoading(false);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // Load next page (all demo pages are preloaded — this only navigates)
+  const loadNextPage = useCallback(() => {
+    if (currentPageIndex < pages.length - 1) {
+      setCurrentPageIndex(prev => prev + 1);
+      feedTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [currentPageIndex, pages]);
+
+  // Go to previous page
+  const loadPrevPage = useCallback(() => {
+    if (currentPageIndex > 0) {
+      setCurrentPageIndex(prev => prev - 1);
+      feedTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [currentPageIndex]);
+
+  // All loaded items across all pages — for sidebar stats
+  const allLoadedItems = useMemo(
+    () => pages.flatMap(p => (p.items || []).map(normalizeNewsItem)),
+    [pages]
+  );
+
+  // Report all items to parent for sidebar stats
+  useEffect(() => {
+    onAllItemsChange(allLoadedItems);
+  }, [allLoadedItems, onAllItemsChange]);
+
+  // Current page items before filtering
+  const currentPageItems = useMemo(
+    () => (pages[currentPageIndex]?.items || []).map(normalizeNewsItem),
+    [pages, currentPageIndex]
+  );
+
+  // Apply filters to current page items
+  const currentItems = useMemo(() => {
+    const searchLower = filters.search.toLowerCase().trim();
+    return currentPageItems.filter(item => {
+      if (searchLower && !item.title.toLowerCase().includes(searchLower) && !item.excerpt.toLowerCase().includes(searchLower)) {
+        return false;
+      }
+      if (!isInDateRange(item.date, filters.dateRange)) return false;
+      if (!matchesMediaType(item.media, filters.mediaType)) return false;
+      if (!matchesMessageFilter(item.excerpt, filters.hasMessage)) return false;
+      return true;
+    });
+  }, [currentPageItems, filters]);
+
+  // Report filtered count across ALL pages to parent
+  useEffect(() => {
+    const searchLower = filters.search.toLowerCase().trim();
+    const count = allLoadedItems.filter(item => {
+      if (searchLower && !item.title.toLowerCase().includes(searchLower) && !item.excerpt.toLowerCase().includes(searchLower)) return false;
+      if (!isInDateRange(item.date, filters.dateRange)) return false;
+      if (!matchesMediaType(item.media, filters.mediaType)) return false;
+      if (!matchesMessageFilter(item.excerpt, filters.hasMessage)) return false;
+      return true;
+    }).length;
+    onFilteredCountChange(count);
+  }, [allLoadedItems, filters, onFilteredCountChange]);
+
+  const totalLoadedPosts = useMemo(
+    () => pages.reduce((sum, p) => sum + (p.items?.length ?? 0), 0),
+    [pages]
+  );
+  const canGoNext = currentPageIndex < pages.length - 1 || (hasMore && pages[currentPageIndex]?.nextUrl);
+  const canGoPrev = currentPageIndex > 0;
+
+  if (loading) {
+    return (
+      <NewsFeedSkeleton />
+    );
+  }
+
+  return (
+    <div className="lg:w-2/3 space-y-12">
+      {/* Editorial Header */}
+      <div ref={feedTopRef} className="border-b-4 border-[#185C20] pb-4 mb-12 scroll-mt-8">
+        <h2 className="text-4xl font-black text-[#185C20] uppercase tracking-tighter">The MMPNS Gazette</h2>
+        <div className="flex justify-between items-center mt-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+          <span>Institutional Bulletin &middot; Campus News Digest</span>
+          <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-8">
+          <p className="text-xs text-red-600 font-bold">{error}</p>
+        </div>
+      )}
+
+      {/* Page Indicator */}
+      <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+          Page {currentPageIndex + 1} of {pages.length}{hasMore ? '+' : ''} &middot; {totalLoadedPosts} posts loaded
+        </p>
+        <div className="flex items-center gap-1">
+          {pages.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => {
+                setCurrentPageIndex(idx);
+                feedTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                idx === currentPageIndex 
+                  ? 'bg-[#185C20] w-6' 
+                  : 'bg-gray-300 hover:bg-gray-400'
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Posts for Current Page */}
+      <div className="space-y-20">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentPageIndex}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.4 }}
+            className="space-y-20"
+          >
+            {currentItems.length === 0 && (
+              <div className="py-16 text-center">
+                <p className="text-sm font-black text-gray-300 uppercase tracking-widest mb-2">No matching posts on this page</p>
+                <p className="text-xs text-gray-400">Try adjusting your filters or navigating to another page.</p>
+              </div>
+            )}
+            {currentItems.map((news, idx) => (
+              <motion.article 
+                key={news.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.1, duration: 0.5 }}
+                className="group cursor-pointer"
+                onClick={() => { setSelectedNews(news); setMediaIndex(0); }}
+              >
+                <div className="flex flex-col md:flex-row gap-8">
+                  {/* Media Column */}
+                  <div className="md:w-1/2 relative">
+                    <div className="aspect-[4/3] rounded-sm overflow-hidden border border-gray-100 shadow-xl">
+                      <ImageWithFallback 
+                        src={news.image} 
+                        alt={news.title} 
+                        loading="lazy"
+                        decoding="async"
+                        className="w-full h-full object-cover grayscale-[20%] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105" 
+                      />
+                    </div>
+                    <div className="absolute -top-3 -left-3 px-4 py-2 bg-[#EDCD1F] text-[#185C20] text-[10px] font-black uppercase tracking-widest shadow-lg transform -rotate-2">
+                      {news.category}
+                    </div>
+                    {(news.media?.length ?? 0) > 1 && (
+                      <div className="absolute bottom-3 right-3 px-3 py-1.5 bg-black/60 backdrop-blur-sm rounded-full flex items-center gap-1.5 text-white text-[10px] font-black">
+                        <ImageIcon size={12} />
+                        {news.media.length}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Text Column */}
+                  <div className="md:w-1/2 flex flex-col justify-center">
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">
+                      <Calendar size={12} className="text-[#185C20]" />
+                      {news.date}
+                    </div>
+                    <h3 className="text-3xl font-black text-gray-900 mb-6 leading-[0.9] group-hover:text-[#185C20] transition-colors line-clamp-2">
+                      {news.title}
+                    </h3>
+                    <div className="relative mb-8">
+                      <Quote size={24} className="absolute -top-4 -left-6 text-gray-100 -z-10" />
+                      <p className="text-sm text-gray-600 leading-relaxed font-serif line-clamp-3">
+                        {news.excerpt}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <button className="inline-flex items-center gap-2 text-[11px] font-black text-[#185C20] uppercase tracking-widest border-b-2 border-[#EDCD1F] pb-1 hover:gap-4 transition-all">
+                        View Post <ArrowRight size={14} />
+                      </button>
+                      <div className="flex items-center gap-3 text-gray-300">
+                        <span className="flex items-center gap-1 text-[10px] font-bold"><ThumbsUp size={12} /> {news.likes}</span>
+                        <span className="flex items-center gap-1 text-[10px] font-bold"><MessageSquare size={12} /> {news.commentsCount}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.article>
+            ))}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Pagination Controls */}
+      <div className="border-t-2 border-[#185C20] pt-8">
+        <div className="flex items-center justify-between">
+          {/* Previous Button */}
+          <button
+            onClick={loadPrevPage}
+            disabled={!canGoPrev}
+            className={`inline-flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${
+              canGoPrev
+                ? 'text-[#185C20] border-2 border-[#185C20] hover:bg-[#185C20] hover:text-white'
+                : 'text-gray-300 border-2 border-gray-200 cursor-not-allowed'
+            }`}
+          >
+            <ChevronLeft size={14} />
+            Previous
+          </button>
+
+          {/* Page Number */}
+          <div className="text-center">
+            <p className="text-2xl font-black text-[#185C20]">{currentPageIndex + 1}</p>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Edition</p>
+          </div>
+
+          {/* Next / Load More Button */}
+          <button
+            onClick={loadNextPage}
+            disabled={!canGoNext || loadingMore}
+            className={`inline-flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${
+              canGoNext && !loadingMore
+                ? 'text-white bg-[#185C20] border-2 border-[#185C20] hover:bg-[#185C20]/90'
+                : 'text-gray-300 bg-gray-100 border-2 border-gray-200 cursor-not-allowed'
+            }`}
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 className="animate-spin" size={14} />
+                Loading...
+              </>
+            ) : currentPageIndex < pages.length - 1 ? (
+              <>
+                Next
+                <ChevronRight size={14} />
+              </>
+            ) : hasMore ? (
+              <>
+                Load More
+                <ChevronDown size={14} />
+              </>
+            ) : (
+              <>
+                End of Feed
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Visual flourish */}
+        <div className="flex items-center justify-center mt-6 gap-2">
+          <div className="h-px flex-1 bg-gray-200" />
+          <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest px-3">
+            {hasMore ? `Showing ${POSTS_PER_PAGE} posts per page` : `All ${totalLoadedPosts} posts loaded`}
+          </span>
+          <div className="h-px flex-1 bg-gray-200" />
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {selectedNews && (() => {
+          // Safe media array - handles stale cache without media field
+          const mediaItems: MediaItem[] = selectedNews.media && selectedNews.media.length > 0
+            ? selectedNews.media
+            : [{ type: 'photo' as const, src: selectedNews.image }];
+          const safeMediaIndex = Math.min(mediaIndex, mediaItems.length - 1);
+
+          return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { pauseActiveVideo(); setSelectedNews(null); }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-5xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]"
+            >
+              <button 
+                onClick={() => { pauseActiveVideo(); setSelectedNews(null); }}
+                className="absolute top-4 right-4 z-10 w-10 h-10 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full flex items-center justify-center text-white md:text-gray-900 md:bg-gray-100 md:hover:bg-gray-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+
+              {/* Media Slider */}
+              <div className="md:w-3/5 relative h-64 md:h-auto shrink-0 bg-black overflow-hidden">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={safeMediaIndex}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="w-full h-full"
+                  >
+                    {mediaItems[safeMediaIndex]?.type === 'video' ? (
+                      <video
+                        key={`video-${safeMediaIndex}`}
+                        ref={videoRef}
+                        src={mediaItems[safeMediaIndex].videoSrc}
+                        poster={mediaItems[safeMediaIndex].src}
+                        controls
+                        autoPlay
+                        muted
+                        playsInline
+                        preload="auto"
+                        controlsList="nodownload"
+                        disablePictureInPicture
+                        className="w-full h-full object-contain bg-black"
+                      />
+                    ) : (
+                      <ImageWithFallback
+                        src={mediaItems[safeMediaIndex]?.src || selectedNews.image}
+                        alt={`${selectedNews.title} - ${safeMediaIndex + 1}`}
+                        decoding="async"
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+
+                {/* Preload adjacent media for smoother slider navigation */}
+                {mediaItems.length > 1 && (
+                  <div className="hidden" aria-hidden="true">
+                    {[safeMediaIndex - 1, safeMediaIndex + 1]
+                      .map(i => (i + mediaItems.length) % mediaItems.length)
+                      .filter(i => i !== safeMediaIndex)
+                      .map(i => {
+                        const item = mediaItems[i];
+                        if (!item) return null;
+                        if (item.type === 'video') {
+                          return <link key={`preload-${i}`} rel="preload" as="image" href={item.src} />;
+                        }
+                        return <img key={`preload-${i}`} src={item.src} alt="" loading="eager" decoding="async" />;
+                      })}
+                  </div>
+                )}
+
+                {/* Slider Navigation Arrows */}
+                {mediaItems.length > 1 && (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); pauseActiveVideo(); setMediaIndex(prev => prev > 0 ? prev - 1 : mediaItems.length - 1); }}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-all"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); pauseActiveVideo(); setMediaIndex(prev => prev < mediaItems.length - 1 ? prev + 1 : 0); }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-all"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  </>
+                )}
+
+                {/* Counter Badge */}
+                {mediaItems.length > 1 && (
+                  <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/50 backdrop-blur-sm rounded-full text-white text-[10px] font-black tracking-wider flex items-center gap-1.5">
+                    {mediaItems[safeMediaIndex]?.type === 'video' ? <Play size={10} /> : <ImageIcon size={10} />}
+                    {safeMediaIndex + 1} / {mediaItems.length}
+                  </div>
+                )}
+
+                {/* Dot Indicators */}
+                {mediaItems.length > 1 && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
+                    {mediaItems.map((m, idx) => (
+                      <button
+                        key={idx}
+                        onClick={(e) => { e.stopPropagation(); pauseActiveVideo(); setMediaIndex(idx); }}
+                        className={`rounded-full transition-all duration-300 ${
+                          idx === safeMediaIndex
+                            ? 'w-6 h-2 bg-white'
+                            : 'w-2 h-2 bg-white/40 hover:bg-white/60'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Mobile overlay info */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none md:hidden" />
+                <div className="absolute bottom-6 left-6 md:hidden pointer-events-none">
+                  <span className="px-3 py-1 bg-[#EDCD1F] text-[#185C20] text-[10px] font-black uppercase tracking-widest rounded-full">
+                    {selectedNews.category}
+                  </span>
+                  <h2 className="text-xl font-black text-white mt-2 leading-tight">{selectedNews.title}</h2>
+                </div>
+              </div>
+
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="p-8 md:p-10 flex-grow overflow-y-auto custom-scrollbar">
+                  <div className="hidden md:block mb-8">
+                    <div className="flex items-center gap-3 text-[10px] font-bold text-[#185C20] uppercase tracking-widest mb-3">
+                      <span className="px-2 py-0.5 bg-[#EDCD1F] rounded">{selectedNews.category}</span>
+                      <span>&middot;</span>
+                      <span className="text-gray-400">{selectedNews.date}</span>
+                    </div>
+                    <h2 className="text-3xl font-black text-gray-900 leading-[1.1]">{selectedNews.title}</h2>
+                  </div>
+
+                  <div className="space-y-6">
+                    <p className="text-base text-gray-700 leading-relaxed font-serif whitespace-pre-wrap">
+                      {selectedNews.excerpt}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-white border-t border-gray-50 space-y-3">
+                  {selectedNews.url && (
+                    <a
+                      href={selectedNews.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 py-4 px-4 bg-[#1877F2] text-white rounded-xl cursor-pointer hover:bg-[#1877F2]/90 transition-all font-black text-[10px] uppercase tracking-widest"
+                    >
+                      <Facebook size={14} />
+                      View Original Post on Facebook
+                    </a>
+                  )}
+                  <button
+                    onClick={() => { pauseActiveVideo(); setSelectedNews(null); }}
+                    className="w-full py-3 bg-gray-50 text-gray-400 text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-gray-100"
+                  >
+                    Return to Gazette
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+          );
+        })()}
+      </AnimatePresence>
+    </div>
+  );
+};

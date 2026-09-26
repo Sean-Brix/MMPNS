@@ -1,0 +1,49 @@
+import React, { useEffect } from 'react';
+import { Outlet, useLocation } from 'react-router';
+import { Toaster } from 'sonner';
+import { motion } from 'motion/react';
+import { Header } from '../components/Header';
+import { Footer } from '../components/Footer';
+import { getSeoForPath } from '../seo/siteMeta';
+import { useDocumentSeo } from '../seo/useDocumentSeo';
+
+const PORTAL_PATHS = [
+  '/teacher-portal', '/student-portal', '/principal-portal',
+  '/librarian-portal', '/registrar-portal', '/admin-portal', '/superadmin',
+];
+
+export const RootLayout: React.FC = () => {
+  const location = useLocation();
+  const isAdmin = location.pathname === '/admin';
+  const isPortal = PORTAL_PATHS.includes(location.pathname);
+
+  // Keep document <head> SEO metadata in sync with the active route.
+  useDocumentSeo(getSeoForPath(location.pathname));
+
+  // Scroll to top on route change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  return (
+    <>
+      <Toaster position="top-center" expand={true} richColors />
+      <div className="min-h-screen bg-white flex flex-col font-sans selection:bg-[#EDCD1F] selection:text-[#185C20]">
+        {!isAdmin && !isPortal && <Header />}
+        <main className={`flex-grow ${!isAdmin && !isPortal ? 'pt-[80px] md:pt-[116px]' : ''}`}>
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+          >
+            <Outlet />
+          </motion.div>
+        </main>
+        {!isAdmin && !isPortal && <Footer />}
+      </div>
+    </>
+  );
+};
+
+export default RootLayout;
